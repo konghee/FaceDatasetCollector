@@ -82,6 +82,30 @@ enum Rank: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// `Resources/`에 든 조선시대 인물 그림. 얼굴 자리가 흰 타원으로 비어 있다.
+    var imageName: String { "rank-\(rawValue)" }
+
+    /// 그림 안에서 얼굴 타원이 차지하는 자리. 이미지 크기 대비 비율(0~1)이다.
+    ///
+    /// 원본 시트에서 흰 타원을 자동으로 검출해 뽑은 값이라 눈대중이 아니다.
+    /// 그림을 교체하면 이 값도 다시 뽑아야 한다.
+    var faceHole: CGRect {
+        switch self {
+        case .king: CGRect(x: 0.3750, y: 0.1513, width: 0.2500, height: 0.2174)
+        case .primeMinister: CGRect(x: 0.3750, y: 0.1513, width: 0.2500, height: 0.2174)
+        case .inspector: CGRect(x: 0.3750, y: 0.1513, width: 0.2500, height: 0.2174)
+        case .general: CGRect(x: 0.5357, y: 0.1513, width: 0.2500, height: 0.2174)
+        case .tavernKeeper: CGRect(x: 0.3750, y: 0.1513, width: 0.2500, height: 0.2174)
+        case .merchant: CGRect(x: 0.4643, y: 0.1513, width: 0.2500, height: 0.2174)
+        case .scholar: CGRect(x: 0.3750, y: 0.1513, width: 0.2500, height: 0.2174)
+        case .slaveHunter: CGRect(x: 0.1976, y: 0.1513, width: 0.2500, height: 0.2174)
+        case .bandit: CGRect(x: 0.4583, y: 0.0712, width: 0.2500, height: 0.2174)
+        case .physician: CGRect(x: 0.3750, y: 0.1513, width: 0.2500, height: 0.2174)
+        case .entertainer: CGRect(x: 0.2212, y: 0.1513, width: 0.2500, height: 0.2174)
+        case .servant: CGRect(x: 0.3750, y: 0.1513, width: 0.2500, height: 0.2174)
+        }
+    }
+
     var symbol: String {
         switch self {
         case .king: "crown.fill"

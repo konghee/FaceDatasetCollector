@@ -74,15 +74,60 @@ struct RankResultView: View {
 
     // MARK: - 얼굴
 
-    /// 얼굴 크롭을 원형 액자에 넣는다. 크롭이 없으면 전체 프레임으로 대신한다.
+    /// 조선시대 인물 그림의 빈 얼굴 자리에 촬영한 얼굴을 끼워 넣는다.
+    ///
+    /// 관광지 얼굴 끼워넣기 포토존과 같은 방식이다. 그림 파일이 없으면 얼굴만 원형으로 보여 준다.
+    @ViewBuilder
     private var portrait: some View {
-        let imageData = sample.faceCrop ?? sample.fullFrame
+        if let art = UIImage(named: result.rank.imageName) {
+            Image(uiImage: art)
+                .resizable()
+                // 이미지 자체의 비율로 뷰를 잡아야 아래 overlay 좌표계가 그림과 정확히 겹친다.
+                .aspectRatio(art.size, contentMode: .fit)
+                .overlay {
+                    GeometryReader { proxy in
+                        faceInHole(in: proxy.size)
+                    }
+                }
+                .frame(maxHeight: 340)
+                .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
+        } else {
+            faceOnly
+        }
+    }
 
-        return ZStack {
-            Circle()
-                .fill(.black.opacity(0.35))
+    /// 그림 크기에 맞춰 얼굴 타원을 배치한다.
+    @ViewBuilder
+    private func faceInHole(in size: CGSize) -> some View {
+        let hole = result.rank.faceHole
+        let frame = CGRect(
+            x: hole.minX * size.width,
+            y: hole.minY * size.height,
+            width: hole.width * size.width,
+            height: hole.height * size.height
+        )
 
-            if let image = UIImage(data: imageData) {
+        if let face = UIImage(data: sample.faceCrop ?? sample.fullFrame) {
+            Color.clear
+                .frame(width: frame.width, height: frame.height)
+                .overlay {
+                    Image(uiImage: face)
+                        .resizable()
+                        .scaledToFill()
+                        // 얼굴 크롭은 얼굴 둘레를 1.5배로 넉넉히 잘라 둔 것이라,
+                        // 그대로 넣으면 이목구비가 타원 안에서 작게 뜬다. 그만큼 당겨 준다.
+                        .scaleEffect(1.45)
+                }
+                .clipShape(Ellipse())
+                .position(x: frame.midX, y: frame.midY)
+        }
+    }
+
+    private var faceOnly: some View {
+        ZStack {
+            Circle().fill(.black.opacity(0.35))
+
+            if let image = UIImage(data: sample.faceCrop ?? sample.fullFrame) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
@@ -90,21 +135,7 @@ struct RankResultView: View {
         }
         .frame(width: 210, height: 210)
         .clipShape(Circle())
-        .overlay {
-            Circle().strokeBorder(result.rank.tint, lineWidth: 4)
-        }
-        .overlay(alignment: .bottom) {
-            Image(systemName: result.rank.symbol)
-                .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(.black.opacity(0.85))
-                .frame(width: 54, height: 54)
-                .background(result.rank.tint, in: Circle())
-                .overlay {
-                    Circle().strokeBorder(.black.opacity(0.25), lineWidth: 2)
-                }
-                .offset(y: 22)
-        }
-        .padding(.bottom, 22)
+        .overlay { Circle().strokeBorder(result.rank.tint, lineWidth: 4) }
     }
 
     // MARK: - 결과
