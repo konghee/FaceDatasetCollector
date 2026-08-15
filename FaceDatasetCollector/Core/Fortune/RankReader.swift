@@ -41,8 +41,9 @@ nonisolated enum RankReader {
 
     /// 계열을 가르는 얼굴 너비(mm).
     ///
-    /// 실측: 사람 A 150.1~151.3, 사람 B 152.5 근처. 사람이 모이면 다시 맞춰야 한다.
-    private static let faceWidthEdge: Float = 152.0
+    /// 실측한 두 사람이 150.7과 152.5였으므로 그 한가운데에 둔다. 어느 쪽 값도 경계에
+    /// 붙어 있지 않아야 흔들림에 견딘다. 사람이 모이면 중앙값으로 다시 맞춰야 한다.
+    private static let faceWidthEdge: Float = 151.5
 
     /// 계열마다 여섯 신분. 순서에 의미는 없고 구분자 해시로 고른다.
     private static let families: [[Rank]] = [
@@ -52,15 +53,14 @@ nonisolated enum RankReader {
         [.king, .general, .tavernKeeper, .merchant, .slaveHunter, .bandit],
     ]
 
-    static func read(_ metrics: FaceMetrics, subjectID: String) -> RankResult {
+    /// 지금 이 치수라면 어떤 신분인지 계산만 한다. **아무것도 저장하지 않는다.**
+    ///
+    /// 계측기처럼 매 프레임 불리는 자리에서 쓴다. 여기서 결과를 저장하면 얼굴이 잡히는
+    /// 첫 프레임에 신분이 확정돼 버린다. 그 프레임은 ARKit이 얼굴을 막 잡기 시작한,
+    /// 값이 가장 튀는 순간이다.
+    static func preview(_ metrics: FaceMetrics, subjectID: String) -> RankResult {
         let family = metrics.widthMM >= faceWidthEdge ? 1 : 0
-        let candidates = families[family]
-
-        // 이미 이 사람에게 나온 적이 있으면 그대로 쓴다.
-        let rank = RankMemory.rank(for: subjectID)
-            ?? candidates[Int(stableHash(subjectID) % UInt32(candidates.count))]
-
-        RankMemory.remember(rank, for: subjectID)
+        let rank = RankMemory.rank(for: subjectID) ?? pick(family: family, subjectID: subjectID)
 
         return RankResult(
             rank: rank,
@@ -69,12 +69,39 @@ nonisolated enum RankReader {
         )
     }
 
-    /// 촬영한 표본에서 바로 판정한다. 얼굴을 못 잡았으면 `nil`.
-    static func read(_ sample: PendingSample, subjectID: String) -> RankResult? {
+    /// 이 사람의 신분을 확정하고 기억한다. **셔터를 누른 순간에만 부른다.**
+    ///
+    /// 한 번 정해진 뒤에는 측정값이 흔들려도 바뀌지 않는다. 같은 사람에게 늘 같은 신분이
+    /// 나와야 재미가 성립하기 때문이다.
+    static func decide(_ metrics: FaceMetrics, subjectID: String) -> RankResult {
+        let family = metrics.widthMM >= faceWidthEdge ? 1 : 0
+
+        let rank: Rank
+        if let remembered = RankMemory.rank(for: subjectID) {
+            rank = remembered
+        } else {
+            rank = pick(family: family, subjectID: subjectID)
+            RankMemory.remember(rank, for: subjectID)
+        }
+
+        return RankResult(
+            rank: rank,
+            metrics: metrics,
+            reasons: reasons(family: family, metrics: metrics)
+        )
+    }
+
+    /// 촬영한 표본에서 확정한다. 모아 둔 치수가 없을 때만 쓰는 대비책이다.
+    static func decide(_ sample: PendingSample, subjectID: String) -> RankResult? {
         FaceMetrics(
             vertices: sample.vertices,
             interpupillaryDistanceMM: sample.geometry.interpupillaryDistance
-        ).map { read($0, subjectID: subjectID) }
+        ).map { decide($0, subjectID: subjectID) }
+    }
+
+    private static func pick(family: Int, subjectID: String) -> Rank {
+        let candidates = families[family]
+        return candidates[Int(stableHash(subjectID) % UInt32(candidates.count))]
     }
 
     /// FNV-1a. Swift 기본 `hashValue`는 실행할 때마다 값이 달라져서 쓸 수 없다.

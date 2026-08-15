@@ -131,7 +131,7 @@ final class DatasetCollectionModel {
     /// 촬영·라벨링을 거치지 않고 카메라를 향하기만 해도 값이 보이므로, 여러 사람을
     /// 빠르게 훑어 분포를 확인할 수 있다. 릴리스 빌드에는 들어가지 않는다.
     var liveResult: RankResult? {
-        representativeMetrics.map { RankReader.read($0, subjectID: subjectID) }
+        representativeMetrics.map { RankReader.preview($0, subjectID: subjectID) }
     }
 
     /// 피험자별로 기억해 둔 신분을 모두 지운다. 기준값을 바꿔 가며 시험할 때 쓴다.
@@ -155,9 +155,10 @@ final class DatasetCollectionModel {
         Task {
             // Vision 검출과 JPEG 인코딩은 무거워서 백그라운드로 넘긴다.
             let sample = await DatasetCapture.makeSample(from: raw)
-            // 셔터를 누른 그 한 프레임이 아니라, 직전까지 모아 둔 값으로 판정한다.
-            let result = representativeMetrics.map { RankReader.read($0, subjectID: subjectID) }
-                ?? RankReader.read(sample, subjectID: subjectID)
+            // 셔터를 누른 그 한 프레임이 아니라, 직전까지 모아 둔 값으로 확정한다.
+            // 신분이 정해지고 기억되는 곳은 여기 한 곳뿐이다.
+            let result = representativeMetrics.map { RankReader.decide($0, subjectID: subjectID) }
+                ?? RankReader.decide(sample, subjectID: subjectID)
 
             rankResult = result
             stage = result == nil ? .labeling : .rank
