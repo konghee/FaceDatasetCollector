@@ -9,7 +9,12 @@
 
 - 번들 ID: `com.ElenaLee.facedatasetcollector`
 - 앱 이름: 얼굴 데이터
-- 최소 버전: iOS 18.0 / iPhone 전용
+- 최소 버전: iOS 18.0 / iPhone · iPad (세로 고정)
+
+iPad는 **TrueDepth(Face ID)가 있는 iPad Pro에서만** 얼굴 추적이 됩니다.
+Air / mini / 일반 iPad는 설치는 되지만 안내 화면만 뜹니다.
+
+코드가 어떻게 짜여 있는지는 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)를 보세요.
 
 ```bash
 open /Users/jeonghee/Desktop/AppleDeveloperAcademy/C3/FaceDatasetCollector/FaceDatasetCollector.xcodeproj
@@ -126,4 +131,9 @@ v = np.fromfile("FaceDataset/geometry/<uuid>.bin", dtype="<f4").reshape(-1, 3)  
 
 `Core/FaceGeometry/`(ARFaceCaptureManager, FaceAnchorSnapshot)는 본 앱 작업 중이던
 `Vultus/Core/FaceGeometry/`에서 복사해 왔습니다. 본 앱 쪽을 고치면 여기도 같이 보세요.
-# 2026-C5-withAI
+
+## 문서
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — 코드 구조. 실행 순서를 따라가며 설명합니다
+- [`docs/learning/`](docs/learning/) — 날짜별 학습 기록
+- [`docs/BACKLOG.md`](docs/BACKLOG.md) — 다음에 해볼 일
