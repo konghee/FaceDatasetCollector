@@ -180,11 +180,16 @@ struct DatasetCollectionView: View {
 private struct DatasetCameraPreview: UIViewRepresentable {
     let session: ARSession
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+    
     func makeUIView(context: Context) -> ARSCNView {
         let view = ARSCNView()
         view.session = session
         view.automaticallyUpdatesLighting = false
         view.rendersContinuously = true
+        view.delegate = context.coordinator
         return view
     }
 
