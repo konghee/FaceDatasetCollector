@@ -126,3 +126,4 @@ v = np.fromfile("FaceDataset/geometry/<uuid>.bin", dtype="<f4").reshape(-1, 3)  
 
 `Core/FaceGeometry/`(ARFaceCaptureManager, FaceAnchorSnapshot)는 본 앱 작업 중이던
 `Vultus/Core/FaceGeometry/`에서 복사해 왔습니다. 본 앱 쪽을 고치면 여기도 같이 보세요.
+# 2026-C5-withAI
