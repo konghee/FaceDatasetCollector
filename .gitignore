@@ -1,0 +1,11 @@
+# Xcode 사용자별 상태 (창 배치, 열어 둔 파일, 브레이크포인트)
+# 코드와 무관하고 Xcode를 켜기만 해도 계속 바뀌므로 추적하지 않는다.
+**/xcuserdata/
+
+# 빌드 산출물
+build/
+DerivedData/
+*.xcuserstate
+
+# macOS
+.DS_Store
