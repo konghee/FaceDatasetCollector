@@ -1,5 +1,5 @@
 //
-//  JoseonRank.swift
+// Rank.swift
 //  FaceDatasetCollector
 //
 
@@ -13,7 +13,7 @@ import SwiftUI
 /// 얼굴을 근거로 "너는 아래다"라고 말하는 화면이 되면 그 순간 재미 요소가 아니라 사고다.
 ///
 /// 새 신분을 추가하거나 문구를 고칠 때 이 기준을 먼저 통과시킬 것.
-enum JoseonRank: String, CaseIterable, Identifiable, Sendable {
+enum Rank: String, CaseIterable, Identifiable, Sendable {
     case king           // 임금
     case primeMinister  // 영의정
     case inspector      // 암행어사

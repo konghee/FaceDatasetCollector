@@ -7,7 +7,7 @@ import Foundation
 
 /// 판정 결과. 신분과 함께 "왜 그렇게 나왔는지"를 들고 있다.
 nonisolated struct RankResult: Sendable {
-    let rank: JoseonRank
+    let rank: Rank
     let metrics: FaceMetrics
 
     /// 결과 화면에 보여 줄 근거. ("갸름한 얼굴형", "시원한 미간")
@@ -48,7 +48,7 @@ nonisolated enum RankReader {
         let isStrongJaw = metrics.jawRatio >= Threshold.jawRatio
 
         // 분면마다 성격이 통하는 셋을 둔다. 순서는 미간이 좁은 쪽 → 넓은 쪽.
-        let candidates: [JoseonRank] = switch (isLongFace, isStrongJaw) {
+        let candidates: [Rank] = switch (isLongFace, isStrongJaw) {
         case (true, true): [.slaveHunter, .general, .bandit]        // 길고 각진 — 기개
         case (true, false): [.scholar, .inspector, .physician]      // 길고 갸름 — 지성
         case (false, true): [.primeMinister, .king, .tavernKeeper]  // 둥글고 각진 — 무게

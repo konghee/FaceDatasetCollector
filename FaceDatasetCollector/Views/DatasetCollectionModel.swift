@@ -78,6 +78,24 @@ final class DatasetCollectionModel {
         manager.snapshot.map(CaptureQuality.init)
     }
 
+#if DEBUG
+    /// 지금 화면에 잡힌 얼굴의 판정 지표. **기준값을 실측으로 맞추기 위한 계측기다.**
+    ///
+    /// 촬영·라벨링을 거치지 않고 카메라를 향하기만 해도 값이 보이므로, 여러 사람을
+    /// 빠르게 훑어 분포를 확인할 수 있다. 릴리스 빌드에는 들어가지 않는다.
+    var liveResult: RankResult? {
+        guard let snapshot = manager.snapshot else { return nil }
+
+        let ipdMM = simd_distance(
+            snapshot.leftEyeTransform.translation,
+            snapshot.rightEyeTransform.translation
+        ) * 1000
+
+        return FaceMetrics(vertices: snapshot.vertices, interpupillaryDistanceMM: ipdMM)
+            .map(RankReader.read)
+    }
+#endif
+
     func capture() {
         guard !isProcessing, pending == nil else { return }
 

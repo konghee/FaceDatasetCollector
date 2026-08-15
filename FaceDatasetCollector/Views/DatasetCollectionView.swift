@@ -22,6 +22,7 @@ struct DatasetCollectionView: View {
             VStack {
                 topBar
                 Spacer()
+                metricsProbe
                 statusLabel
                 shutterBar
             }
@@ -119,6 +120,44 @@ struct DatasetCollectionView: View {
         }
         .padding(10)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - 판정 지표 계측기
+
+    /// 신분 판정에 쓰는 네 지표를 실시간으로 보여 준다. (DEBUG 전용)
+    ///
+    /// `RankReader.Threshold`의 기준값을 실측으로 맞추기 위한 도구다. 촬영하지 않고
+    /// 카메라를 향하기만 해도 값이 보이므로 여러 사람을 빠르게 훑을 수 있다.
+    ///
+    /// 볼 것 두 가지 —
+    /// 1. **중앙값**: 기준값을 어디에 둬야 반씩 갈리는가
+    /// 2. **사람 간 차이**: 사람이 바뀌어도 값이 거의 안 변하면 그 지표는 못 쓴다
+    @ViewBuilder
+    private var metricsProbe: some View {
+#if DEBUG
+        if let result = model.liveResult {
+            let metrics = result.metrics
+
+            VStack(spacing: 3) {
+                Text(String(
+                    format: "세로 %.3f   턱 %.3f",
+                    metrics.aspectRatio, metrics.jawRatio
+                ))
+                Text(String(
+                    format: "미간 %.3f   깊이 %.3f",
+                    metrics.eyeSpacing, metrics.depthRatio
+                ))
+                Text(result.rank.title)
+                    .foregroundStyle(result.rank.tint)
+            }
+            .font(.caption2.monospaced())
+            .foregroundStyle(.white.opacity(0.85))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
+            .padding(.bottom, 8)
+        }
+#endif
     }
 
     // MARK: - 상태 표시
