@@ -17,18 +17,36 @@ import simd
 ///
 /// 모든 값은 **얼굴 너비로 나눈 비율**이라 얼굴이 크든 작든, 카메라에서 멀든 가깝든
 /// 같은 사람이면 같은 값이 나온다.
-nonisolated struct FaceMetrics: Sendable {
+nonisolated struct FaceMetrics: Sendable, Equatable {
 
-    /// 세로/가로. 클수록 갸름하고 긴 얼굴.
+    /// 얼굴 너비 (mm). 성인은 대략 130~160mm.
+    let widthMM: Float
+
+    /// 얼굴 높이 (mm).
+    let heightMM: Float
+
+    /// 동공간거리 (mm). 성인은 대략 55~70mm.
+    let ipdMM: Float
+
+    /// 세로/가로.
+    ///
+    /// - Warning: **사람이 달라져도 거의 안 변한다** (실측 1.201 vs 1.198). ARKit 얼굴 메시는
+    ///   표정 추적용이라 정해진 형태를 거의 균일하게 확대·축소해 맞춘다. 그래서 비율은 고정에
+    ///   가깝고 **크기만 사람마다 다르다.** 판정 축으로 쓰지 말 것.
     let aspectRatio: Float
 
     /// 앞뒤 깊이/가로. 클수록 이목구비가 입체적이다.
     let depthRatio: Float
 
-    /// 동공간거리/가로. 클수록 눈이 시원하게 벌어져 있다.
+    /// 동공간거리/가로.
+    ///
+    /// - Warning: 눈이 넓은 사람은 얼굴도 큰 경향이라, 너비로 나누면 차이가 상쇄된다
+    ///   (실측 0.414 vs 0.407). 눈 간격을 보려면 `ipdMM`을 그대로 쓸 것.
     let eyeSpacing: Float
 
     /// 아래 1/3 폭 / 위 1/3 폭. 1보다 크면 턱이 발달했고, 작으면 갸름하게 좁아진다.
+    ///
+    /// 지금까지 확인된 지표 중 **사람 간 차이가 가장 뚜렷하다** (실측 0.912 vs 0.843).
     let jawRatio: Float
 
     /// - Parameters:
@@ -47,6 +65,10 @@ nonisolated struct FaceMetrics: Sendable {
         let size = maximum - minimum
         // 얼굴을 못 잡은 프레임에서 0에 가까운 폭이 들어오면 비율이 발산한다.
         guard size.x > 0.01 else { return nil }
+
+        widthMM = size.x * 1000
+        heightMM = size.y * 1000
+        ipdMM = interpupillaryDistanceMM
 
         aspectRatio = size.y / size.x
         depthRatio = size.z / size.x

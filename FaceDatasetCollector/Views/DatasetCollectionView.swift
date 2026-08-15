@@ -15,6 +15,11 @@ struct DatasetCollectionView: View {
     @State private var model = DatasetCollectionModel()
     @State private var isShowingLibrary = false
 
+#if DEBUG
+    /// 판정 지표가 프레임마다 얼마나 흔들리는지 모은 범위. (계측용)
+    @State private var spread: MetricSpread?
+#endif
+
     var body: some View {
         ZStack {
             cameraLayer
@@ -136,19 +141,20 @@ struct DatasetCollectionView: View {
     private var metricsProbe: some View {
 #if DEBUG
         if let result = model.liveResult {
-            let metrics = result.metrics
+            VStack(spacing: 4) {
+                probeRow("너비", result.metrics.widthMM, spread?.width, "%.1f")
+                probeRow("IPD", result.metrics.ipdMM, spread?.ipd, "%.1f")
+                probeRow("턱", result.metrics.jawRatio, spread?.jaw, "%.3f")
+                probeRow("깊이", result.metrics.depthRatio, spread?.depth, "%.3f")
 
-            VStack(spacing: 3) {
-                Text(String(
-                    format: "세로 %.3f   턱 %.3f",
-                    metrics.aspectRatio, metrics.jawRatio
-                ))
-                Text(String(
-                    format: "미간 %.3f   깊이 %.3f",
-                    metrics.eyeSpacing, metrics.depthRatio
-                ))
-                Text(result.rank.title)
-                    .foregroundStyle(result.rank.tint)
+                HStack(spacing: 8) {
+                    Text(result.rank.title)
+                        .foregroundStyle(result.rank.tint)
+
+                    Button("초기화") { spread = nil }
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+                .padding(.top, 2)
             }
             .font(.caption2.monospaced())
             .foregroundStyle(.white.opacity(0.85))
@@ -156,9 +162,65 @@ struct DatasetCollectionView: View {
             .padding(.vertical, 8)
             .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
             .padding(.bottom, 8)
+            .onChange(of: result.metrics, initial: true) { _, metrics in
+                spread = spread?.adding(metrics) ?? MetricSpread(metrics)
+            }
         }
 #endif
     }
+
+#if DEBUG
+    /// 같은 얼굴을 계속 보면서 값이 얼마나 떨리는지 모은다.
+    ///
+    /// 사람이 바뀔 때의 차이보다 이 떨림이 크면, 그 지표로는 사람을 가를 수 없다.
+    private struct MetricSpread {
+        var width: ClosedRange<Float>
+        var ipd: ClosedRange<Float>
+        var jaw: ClosedRange<Float>
+        var depth: ClosedRange<Float>
+
+        init(_ metrics: FaceMetrics) {
+            width = metrics.widthMM...metrics.widthMM
+            ipd = metrics.ipdMM...metrics.ipdMM
+            jaw = metrics.jawRatio...metrics.jawRatio
+            depth = metrics.depthRatio...metrics.depthRatio
+        }
+
+        func adding(_ metrics: FaceMetrics) -> MetricSpread {
+            var copy = self
+            copy.width = Self.extend(width, with: metrics.widthMM)
+            copy.ipd = Self.extend(ipd, with: metrics.ipdMM)
+            copy.jaw = Self.extend(jaw, with: metrics.jawRatio)
+            copy.depth = Self.extend(depth, with: metrics.depthRatio)
+            return copy
+        }
+
+        private static func extend(_ range: ClosedRange<Float>, with value: Float) -> ClosedRange<Float> {
+            min(range.lowerBound, value)...max(range.upperBound, value)
+        }
+    }
+
+    /// `현재값  (떨림폭)` 한 줄.
+    private func probeRow(
+        _ title: String,
+        _ value: Float,
+        _ range: ClosedRange<Float>?,
+        _ format: String
+    ) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .foregroundStyle(.white.opacity(0.55))
+                .frame(width: 34, alignment: .leading)
+
+            Text(String(format: format, value))
+
+            if let range {
+                Text(String(format: "±\(format)", (range.upperBound - range.lowerBound) / 2))
+                    .foregroundStyle(.orange.opacity(0.9))
+            }
+        }
+    }
+#endif
 
     // MARK: - 상태 표시
 
