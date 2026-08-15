@@ -151,6 +151,9 @@ struct DatasetCollectionView: View {
 
                     Text("\(model.collectedFrameCount)장")
                         .foregroundStyle(.white.opacity(0.45))
+
+                    Button("기억 삭제", action: model.forgetRanks)
+                        .foregroundStyle(.orange.opacity(0.9))
                 }
                 .padding(.top, 2)
             }
