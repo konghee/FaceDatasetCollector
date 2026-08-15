@@ -142,18 +142,15 @@ struct DatasetCollectionView: View {
 #if DEBUG
         if let result = model.liveResult {
             VStack(spacing: 4) {
-                probeRow("너비", result.metrics.widthMM, spread?.width, "%.1f")
                 probeRow("IPD", result.metrics.ipdMM, spread?.ipd, "%.1f")
-                probeRow("하정", result.metrics.lowerThirdRatio, spread?.lowerThird, "%.3f")
-                probeRow("코", result.metrics.noseProjection, spread?.nose, "%.3f")
-                probeRow("턱", result.metrics.jawRatio, spread?.jaw, "%.3f")
+                probeRow("너비", result.metrics.widthMM, spread?.width, "%.1f")
 
                 HStack(spacing: 8) {
                     Text(result.rank.title)
                         .foregroundStyle(result.rank.tint)
 
-                    Button("초기화") { spread = nil }
-                        .foregroundStyle(.white.opacity(0.6))
+                    Text("\(model.collectedFrameCount)장")
+                        .foregroundStyle(.white.opacity(0.45))
                 }
                 .padding(.top, 2)
             }

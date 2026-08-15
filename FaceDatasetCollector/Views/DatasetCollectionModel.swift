@@ -70,6 +70,53 @@ final class DatasetCollectionModel {
         captureOrientation = CaptureOrientation(
             storedValue: UserDefaults.standard.integer(forKey: Keys.orientation)
         )
+
+        manager.onSnapshot = { [weak self] snapshot in
+            self?.collectMetrics(from: snapshot)
+        }
+    }
+
+    // MARK: - 판정 지표 누적
+
+    /// 최근 프레임들의 얼굴 치수. 한 장으로 판정하면 그 프레임의 떨림이 결과를 뒤집는다.
+    ///
+    /// 실제로 같은 사람이 2분 사이에 서로 다른 신분을 받은 적이 있다. 지표가 경계선에
+    /// 걸터앉았을 때 한 프레임의 흔들림만으로 칸이 바뀌기 때문이다.
+    private var recentMetrics: [FaceMetrics] = []
+
+    private static let metricsWindow = 30
+
+    private func collectMetrics(from snapshot: FaceAnchorSnapshot?) {
+        guard let snapshot else {
+            // 얼굴이 화면을 벗어났다. 다음 사람의 값과 섞이면 안 된다.
+            recentMetrics.removeAll()
+            return
+        }
+
+        let ipdMM = simd_distance(
+            snapshot.leftEyeTransform.translation,
+            snapshot.rightEyeTransform.translation
+        ) * 1000
+
+        guard let metrics = FaceMetrics(
+            vertices: snapshot.vertices,
+            interpupillaryDistanceMM: ipdMM
+        ) else { return }
+
+        recentMetrics.append(metrics)
+        if recentMetrics.count > Self.metricsWindow {
+            recentMetrics.removeFirst()
+        }
+    }
+
+    /// 최근 프레임 중 동공간거리가 한가운데인 것.
+    ///
+    /// 평균이 아니라 중앙값을 고르는 이유는, 얼굴을 놓쳤다 다시 잡는 프레임에서 튀는 값이
+    /// 섞여도 결과가 끌려가지 않기 때문이다. 합성한 값이 아니라 실제로 관측한 한 장이다.
+    private var representativeMetrics: FaceMetrics? {
+        guard !recentMetrics.isEmpty else { return nil }
+        return recentMetrics
+            .sorted { $0.ipdMM < $1.ipdMM }[recentMetrics.count / 2]
     }
 
     // MARK: - 촬영
@@ -84,16 +131,11 @@ final class DatasetCollectionModel {
     /// 촬영·라벨링을 거치지 않고 카메라를 향하기만 해도 값이 보이므로, 여러 사람을
     /// 빠르게 훑어 분포를 확인할 수 있다. 릴리스 빌드에는 들어가지 않는다.
     var liveResult: RankResult? {
-        guard let snapshot = manager.snapshot else { return nil }
-
-        let ipdMM = simd_distance(
-            snapshot.leftEyeTransform.translation,
-            snapshot.rightEyeTransform.translation
-        ) * 1000
-
-        return FaceMetrics(vertices: snapshot.vertices, interpupillaryDistanceMM: ipdMM)
-            .map(RankReader.read)
+        representativeMetrics.map(RankReader.read)
     }
+
+    /// 계측기에서 지금까지 모은 프레임 수. 판정이 몇 장에 근거하는지 보여 준다.
+    var collectedFrameCount: Int { recentMetrics.count }
 #endif
 
     func capture() {
@@ -108,7 +150,8 @@ final class DatasetCollectionModel {
         Task {
             // Vision 검출과 JPEG 인코딩은 무거워서 백그라운드로 넘긴다.
             let sample = await DatasetCapture.makeSample(from: raw)
-            let result = RankReader.read(sample)
+            // 셔터를 누른 그 한 프레임이 아니라, 직전까지 모아 둔 값으로 판정한다.
+            let result = representativeMetrics.map(RankReader.read) ?? RankReader.read(sample)
 
             rankResult = result
             stage = result == nil ? .labeling : .rank
