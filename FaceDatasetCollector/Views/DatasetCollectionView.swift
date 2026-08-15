@@ -144,8 +144,9 @@ struct DatasetCollectionView: View {
             VStack(spacing: 4) {
                 probeRow("너비", result.metrics.widthMM, spread?.width, "%.1f")
                 probeRow("IPD", result.metrics.ipdMM, spread?.ipd, "%.1f")
+                probeRow("하정", result.metrics.lowerThirdRatio, spread?.lowerThird, "%.3f")
+                probeRow("코", result.metrics.noseProjection, spread?.nose, "%.3f")
                 probeRow("턱", result.metrics.jawRatio, spread?.jaw, "%.3f")
-                probeRow("깊이", result.metrics.depthRatio, spread?.depth, "%.3f")
 
                 HStack(spacing: 8) {
                     Text(result.rank.title)
@@ -176,22 +177,25 @@ struct DatasetCollectionView: View {
     private struct MetricSpread {
         var width: ClosedRange<Float>
         var ipd: ClosedRange<Float>
+        var lowerThird: ClosedRange<Float>
+        var nose: ClosedRange<Float>
         var jaw: ClosedRange<Float>
-        var depth: ClosedRange<Float>
 
         init(_ metrics: FaceMetrics) {
             width = metrics.widthMM...metrics.widthMM
             ipd = metrics.ipdMM...metrics.ipdMM
+            lowerThird = metrics.lowerThirdRatio...metrics.lowerThirdRatio
+            nose = metrics.noseProjection...metrics.noseProjection
             jaw = metrics.jawRatio...metrics.jawRatio
-            depth = metrics.depthRatio...metrics.depthRatio
         }
 
         func adding(_ metrics: FaceMetrics) -> MetricSpread {
             var copy = self
             copy.width = Self.extend(width, with: metrics.widthMM)
             copy.ipd = Self.extend(ipd, with: metrics.ipdMM)
+            copy.lowerThird = Self.extend(lowerThird, with: metrics.lowerThirdRatio)
+            copy.nose = Self.extend(nose, with: metrics.noseProjection)
             copy.jaw = Self.extend(jaw, with: metrics.jawRatio)
-            copy.depth = Self.extend(depth, with: metrics.depthRatio)
             return copy
         }
 

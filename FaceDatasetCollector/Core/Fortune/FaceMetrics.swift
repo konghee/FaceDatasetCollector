@@ -46,8 +46,23 @@ nonisolated struct FaceMetrics: Sendable, Equatable {
 
     /// 아래 1/3 폭 / 위 1/3 폭. 1보다 크면 턱이 발달했고, 작으면 갸름하게 좁아진다.
     ///
-    /// 지금까지 확인된 지표 중 **사람 간 차이가 가장 뚜렷하다** (실측 0.912 vs 0.843).
+    /// - Warning: **떨림이 심해 판정에 쓸 수 없다.** 같은 사람을 재는 동안 ±0.021까지
+    ///   흔들렸는데, 이는 서로 다른 두 측정의 차이(0.038)와 맞먹는다. 실제로 이 값이
+    ///   기준선에 걸터앉으면서 같은 사람이 장군과 암행어사를 오갔다.
+    ///   구간 경계에 걸친 정점이 프레임마다 들락거리는 게 원인이다.
     let jawRatio: Float
+
+    // MARK: - 삼정(三停)
+
+    /// 하정 비율. 코끝부터 턱끝까지가 얼굴 전체 높이에서 차지하는 몫.
+    ///
+    /// 관상에서 얼굴을 이마(상정)·중안(중정)·하관(하정)으로 나누는 그 삼정이다.
+    /// 바운딩 박스와 달리 **턱끝·코끝이라는 뚜렷한 한 점**을 기준으로 삼으므로,
+    /// 경계에 걸친 정점이 드나들며 생기는 떨림이 없다.
+    let lowerThirdRatio: Float
+
+    /// 코가 얼굴 평면에서 앞으로 나온 정도를 너비로 나눈 값.
+    let noseProjection: Float
 
     /// - Parameters:
     ///   - vertices: 얼굴 로컬 좌표 정점 (미터)
@@ -84,6 +99,18 @@ nonisolated struct FaceMetrics: Sendable, Equatable {
         let upperWidth = Self.horizontalSpan(of: vertices) { $0.y > upperBound }
 
         jawRatio = upperWidth > 0.001 ? lowerWidth / upperWidth : 1
+
+        // 코끝은 얼굴에서 가장 앞으로 나온 한 점이라 프레임이 바뀌어도 같은 자리를 짚는다.
+        // 구간 경계로 정점을 나누는 방식과 달리 떨림이 생길 여지가 없다.
+        var noseTip = vertices[0]
+        for vertex in vertices where vertex.z > noseTip.z {
+            noseTip = vertex
+        }
+
+        lowerThirdRatio = (noseTip.y - minimum.y) / size.y
+
+        let meanZ = vertices.reduce(Float.zero) { $0 + $1.z } / Float(vertices.count)
+        noseProjection = (noseTip.z - meanZ) / size.x
     }
 
     private static func horizontalSpan(
