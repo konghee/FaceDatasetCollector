@@ -29,7 +29,9 @@
 
 ### 5. `FlowLayout`이 뷰 파일에 얹혀 있다
 
-`DatasetLabelingView.swift:206-267`에 `FlowLayout: Layout` 전체 구현이 같이 들어 있습니다. 라벨 칩 말고도 쓸 수 있는 범용 타입이라 분리 후보입니다. (급하지 않음 — 지금은 쓰는 곳이 하나뿐)
+`DatasetLabelingView.swift:206-267`에 `FlowLayout: Layout` 전체 구현이 같이 들어 있습니다.
+
+**쓰는 곳이 둘로 늘었습니다** — `RankResultView`의 근거 칩도 이걸 씁니다. 라벨링 화면을 열지 않아도 되는 타입이 라벨링 파일에 숨어 있는 상태라, 이제는 `Views/FlowLayout.swift`로 빼는 편이 낫습니다.
 
 ## 확인 필요
 
@@ -43,15 +45,38 @@
 
 셋 중 마지막이 핵심입니다. 누워서 저장되면 `CaptureOrientation`의 자동 역산이 iPad에서 다르게 나온다는 뜻입니다.
 
-### 7. 빌드 경고가 남아 있는지
+### 7. 빌드 경고 6개 — 확인됨
 
-`FaceAnchorSnapshot`은 `nonisolated`가 아닙니다. `SampleGeometry.init`은 `nonisolated`인데 거기서 `snapshot.headPose` 등을 부르므로, 기본 액터 격리(`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`) 때문에 경고가 뜰 수 있습니다.
+`FaceSampleRecord.swift`에 아래 경고가 실제로 뜹니다. (`xcodebuild ... -destination 'generic/platform=iOS'`)
 
-빌드해서 실제 경고 개수를 확인하고, 있으면 `FaceAnchorSnapshot`을 `nonisolated struct`로 선언해 해결합니다. 없으면 이 항목을 지웁니다.
+```
+:53  main actor-isolated property 'headPose' can not be referenced from a nonisolated context
+:58  translation
+:59  translation
+:60  inMillimeters
+:61  leftEyeOpenness
+:62  rightEyeOpenness
+```
+
+`SampleGeometry.init`은 `nonisolated`인데, 거기서 부르는 `FaceAnchorSnapshot`의 프로퍼티들이 기본 액터 격리(`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`) 때문에 MainActor에 묶여 있어서 나는 경고입니다.
+
+`FaceAnchorSnapshot`을 `nonisolated struct`로 선언하면 6개가 한 번에 사라집니다. `SIMDHelpers`의 `translation` / `inMillimeters` 확장도 같이 봐야 합니다.
 
 ## 기능
 
-### 8. 메시 표시 on/off 토글
+### 8-1. 신분 판정 기준값 실측 보정
+
+`RankReader.Threshold`의 네 기준값은 **실측 전 추정치**입니다. 사람들을 실제로 찍어 보면 결과가 한쪽 분면으로 쏠릴 수 있습니다.
+
+결과 화면의 근거 칩을 보면서 여러 명을 찍어 보고, 12신분이 골고루 나오게 중앙값으로 다시 맞춰야 합니다. 부스에서 다들 같은 신분이 나오면 재미가 죽습니다.
+
+### 8-2. 얼굴 합성 (face-swap) — v2
+
+MVP에서는 뺐습니다. `Alissonerdx/BFS-Best-Face-Swap`은 단독 모델이 아니라 **Flux 2 Klein 4b/9b · Qwen Image Edit · Krea 2 위에 올리는 LoRA**라, iOS 온디바이스 실행이 불가능합니다.
+
+서버를 두면 가능하지만 부스 환경에서는 네트워크 의존 · 대기시간 · 얼굴 사진 외부 전송이 모두 부담입니다. 먼저 MVP로 재미 요소가 실제로 참여를 끌어내는지 확인하고, 그 다음에 판단합니다.
+
+### 8-3. 메시 표시 on/off 토글
 
 지금은 항상 그려집니다. 피험자가 자기 얼굴 위의 와이어프레임에 신경 쓰면 표정이 굳을 수 있어, 껐다 켤 수 있으면 좋습니다.
 

@@ -17,8 +17,22 @@ final class DatasetCollectionModel {
 
     let manager = ARFaceCaptureManager()
 
-    /// 라벨링을 기다리는 표본. 값이 있으면 라벨링 시트가 뜬다.
+    /// 라벨링을 기다리는 표본. 값이 있으면 시트가 뜬다.
     var pending: PendingSample?
+
+    /// 시트가 지금 무엇을 보여 줄지.
+    ///
+    /// 부스에서는 참여자가 앞에 서 있다. 라벨링(수집자 몫)을 먼저 하면 참여자를
+    /// 세워 둔 채 기다리게 하므로, 재미 요소인 신분 결과를 먼저 보여 준다.
+    enum PendingStage: Sendable {
+        case rank
+        case labeling
+    }
+
+    var stage: PendingStage = .rank
+
+    /// 이번 표본의 신분 판정 결과. 얼굴 비율을 못 재면 `nil`이고, 그때는 결과 화면을 건너뛴다.
+    var rankResult: RankResult?
 
     var stats = DatasetStats()
     var isProcessing = false
@@ -76,13 +90,24 @@ final class DatasetCollectionModel {
         Task {
             // Vision 검출과 JPEG 인코딩은 무거워서 백그라운드로 넘긴다.
             let sample = await DatasetCapture.makeSample(from: raw)
+            let result = RankReader.read(sample)
+
+            rankResult = result
+            stage = result == nil ? .labeling : .rank
             pending = sample
             isProcessing = false
         }
     }
 
+    /// 참여자가 결과를 다 봤다. 수집자의 라벨링 화면으로 넘긴다.
+    func advanceToLabeling() {
+        stage = .labeling
+    }
+
     func discardPending() {
         pending = nil
+        rankResult = nil
+        stage = .rank
     }
 
     // MARK: - 저장
@@ -102,6 +127,8 @@ final class DatasetCollectionModel {
                 )
                 lastSaved = "\(subjectID) · \(leftEye.folderName)/\(rightEye.folderName) · \(faceShape.folderName)"
                 pending = nil
+                rankResult = nil
+                stage = .rank
                 await refreshStats()
             } catch {
                 errorMessage = "저장 실패: \(error.localizedDescription)"

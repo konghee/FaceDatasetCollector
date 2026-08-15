@@ -34,7 +34,22 @@ struct DatasetCollectionView: View {
         }
         .onDisappear { model.manager.stop() }
         .sheet(item: $model.pending) { sample in
-            DatasetLabelingView(sample: sample, model: model)
+            // 시트를 두 번 여닫지 않고 안쪽 내용만 바꾼다. 시트를 갈아 끼우면
+            // 닫힘 애니메이션 도중 다시 뜨면서 깜빡인다.
+            switch model.stage {
+            case .rank:
+                if let result = model.rankResult {
+                    RankResultView(
+                        sample: sample,
+                        result: result,
+                        onContinue: model.advanceToLabeling
+                    )
+                } else {
+                    DatasetLabelingView(sample: sample, model: model)
+                }
+            case .labeling:
+                DatasetLabelingView(sample: sample, model: model)
+            }
         }
         .sheet(isPresented: $isShowingLibrary) {
             DatasetLibraryView(model: model)
