@@ -163,6 +163,11 @@ struct DatasetCollectionView: View {
             .onChange(of: result.metrics, initial: true) { _, metrics in
                 spread = spread?.adding(metrics) ?? MetricSpread(metrics)
             }
+            // 얼굴이 화면을 벗어나면 범위를 버린다. 안 그러면 ±가 앱을 켠 이후 본 모든
+            // 얼굴의 누적 범위가 되어, 한 사람의 떨림을 재는 계측기 구실을 못 한다.
+            .onChange(of: model.collectedFrameCount) { _, count in
+                if count == 0 { spread = nil }
+            }
         }
 #endif
     }
