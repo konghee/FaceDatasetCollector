@@ -107,7 +107,50 @@ final class DatasetCollectionModel {
         if recentMetrics.count > Self.metricsWindow {
             recentMetrics.removeFirst()
         }
+
+#if DEBUG
+        sampleLandmarksIfNeeded()
+#endif
     }
+
+#if DEBUG
+
+    // MARK: - Vision 랜드마크 계측 (실측용)
+
+    /// ARKit 메시로는 사람을 가를 수 없다는 결론이 나와, Vision 랜드마크에 신호가 있는지
+    /// 재보기 위한 장치다. 판정에는 아직 쓰지 않는다.
+    private(set) var landmarkMetrics: FaceLandmarkMetrics?
+
+    private var isSamplingLandmarks = false
+    private var lastLandmarkSample = Date.distantPast
+
+    /// Vision은 무거워서 매 프레임 돌릴 수 없다. 초당 네 번이면 사람을 훑기에 충분하다.
+    private static let landmarkInterval: TimeInterval = 0.25
+
+    private func sampleLandmarksIfNeeded() {
+        guard !isSamplingLandmarks,
+              Date().timeIntervalSince(lastLandmarkSample) >= Self.landmarkInterval
+        else { return }
+
+        // 프레임을 붙들면 픽셀버퍼 풀이 마르므로, 촬영 때와 같이 복사해 두고 놓아준다.
+        guard let raw = DatasetCapture.grab(from: manager, orientation: captureOrientation)
+        else { return }
+
+        isSamplingLandmarks = true
+        lastLandmarkSample = Date()
+
+        Task {
+            let size = CGSize(width: raw.image.width, height: raw.image.height)
+            let observation = try? await FaceDetector.detect(in: raw.image)
+
+            landmarkMetrics = observation.flatMap {
+                FaceLandmarkMetrics($0, imageSize: size)
+            }
+            isSamplingLandmarks = false
+        }
+    }
+
+#endif
 
     /// 최근 프레임 중 동공간거리가 한가운데인 것.
     ///

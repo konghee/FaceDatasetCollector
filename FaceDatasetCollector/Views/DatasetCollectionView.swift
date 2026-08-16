@@ -145,6 +145,16 @@ struct DatasetCollectionView: View {
                 probeRow("IPD", result.metrics.ipdMM, spread?.ipd, "%.1f")
                 probeRow("너비", result.metrics.widthMM, spread?.width, "%.1f")
 
+                if let vision = model.landmarkMetrics {
+                    Divider().overlay(.white.opacity(0.25)).padding(.vertical, 2)
+
+                    probeRow("입", vision.mouthWidth, spread?.mouth, "%.3f")
+                    probeRow("코", vision.noseWidth, spread?.nose, "%.3f")
+                    probeRow("윤곽", vision.faceWidth, spread?.contour, "%.3f")
+                    probeRow("눈입", vision.eyeToMouth, spread?.eyeToMouth, "%.3f")
+                    probeRow("눈폭", vision.eyeWidth, spread?.eyeWidth, "%.3f")
+                }
+
                 HStack(spacing: 8) {
                     Text(result.rank.title)
                         .foregroundStyle(result.rank.tint)
@@ -166,6 +176,9 @@ struct DatasetCollectionView: View {
             .onChange(of: result.metrics, initial: true) { _, metrics in
                 spread = spread?.adding(metrics) ?? MetricSpread(metrics)
             }
+            .onChange(of: model.landmarkMetrics) { _, vision in
+                if let vision { spread = spread?.adding(vision) }
+            }
             // 얼굴이 화면을 벗어나면 범위를 버린다. 안 그러면 ±가 앱을 켠 이후 본 모든
             // 얼굴의 누적 범위가 되어, 한 사람의 떨림을 재는 계측기 구실을 못 한다.
             .onChange(of: model.collectedFrameCount) { _, count in
@@ -182,26 +195,39 @@ struct DatasetCollectionView: View {
     private struct MetricSpread {
         var width: ClosedRange<Float>
         var ipd: ClosedRange<Float>
-        var lowerThird: ClosedRange<Float>
-        var nose: ClosedRange<Float>
-        var jaw: ClosedRange<Float>
+
+        // Vision 랜드마크 쪽. 얼굴이 잡히기 전에는 값이 없다.
+        var mouth: ClosedRange<Float>?
+        var nose: ClosedRange<Float>?
+        var contour: ClosedRange<Float>?
+        var eyeToMouth: ClosedRange<Float>?
+        var eyeWidth: ClosedRange<Float>?
 
         init(_ metrics: FaceMetrics) {
             width = metrics.widthMM...metrics.widthMM
             ipd = metrics.ipdMM...metrics.ipdMM
-            lowerThird = metrics.lowerThirdRatio...metrics.lowerThirdRatio
-            nose = metrics.noseProjection...metrics.noseProjection
-            jaw = metrics.jawRatio...metrics.jawRatio
         }
 
         func adding(_ metrics: FaceMetrics) -> MetricSpread {
             var copy = self
             copy.width = Self.extend(width, with: metrics.widthMM)
             copy.ipd = Self.extend(ipd, with: metrics.ipdMM)
-            copy.lowerThird = Self.extend(lowerThird, with: metrics.lowerThirdRatio)
-            copy.nose = Self.extend(nose, with: metrics.noseProjection)
-            copy.jaw = Self.extend(jaw, with: metrics.jawRatio)
             return copy
+        }
+
+        func adding(_ vision: FaceLandmarkMetrics) -> MetricSpread {
+            var copy = self
+            copy.mouth = Self.extend(mouth, with: vision.mouthWidth)
+            copy.nose = Self.extend(nose, with: vision.noseWidth)
+            copy.contour = Self.extend(contour, with: vision.faceWidth)
+            copy.eyeToMouth = Self.extend(eyeToMouth, with: vision.eyeToMouth)
+            copy.eyeWidth = Self.extend(eyeWidth, with: vision.eyeWidth)
+            return copy
+        }
+
+        private static func extend(_ range: ClosedRange<Float>?, with value: Float) -> ClosedRange<Float> {
+            guard let range else { return value...value }
+            return extend(range, with: value)
         }
 
         private static func extend(_ range: ClosedRange<Float>, with value: Float) -> ClosedRange<Float> {
