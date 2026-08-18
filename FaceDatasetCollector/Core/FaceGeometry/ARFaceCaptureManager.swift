@@ -26,11 +26,17 @@ final class ARFaceCaptureManager {
 
     var isFaceTracked: Bool { snapshot != nil }
 
+    /// 매 프레임 얼굴 값을 흘려보낸다. 프레임을 모아 평균을 내려는 쪽에서 쓴다.
+    ///
+    /// `snapshot`은 최신 한 장만 남기므로, 여러 프레임을 누적하려면 이 통로가 필요하다.
+    var onSnapshot: (@MainActor (FaceAnchorSnapshot?) -> Void)?
+
     func start() {
         guard isSupported, !isRunning else { return }
 
         let proxy = ARSessionProxy { [weak self] snapshot in
             self?.snapshot = snapshot
+            self?.onSnapshot?(snapshot)
         }
         self.proxy = proxy
         session.delegate = proxy

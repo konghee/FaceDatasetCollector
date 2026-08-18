@@ -15,6 +15,14 @@ struct DatasetCollectionView: View {
     @State private var model = DatasetCollectionModel()
     @State private var isShowingLibrary = false
 
+    /// 피험자 이름을 적는 중인지. 편집이 끝나는 순간을 알아야 동의 시트를 띄울 수 있다.
+    @FocusState private var isEditingSubject: Bool
+
+#if DEBUG
+    /// 판정 지표가 프레임마다 얼마나 흔들리는지 모은 범위. (계측용)
+    @State private var spread: MetricSpread?
+#endif
+
     var body: some View {
         ZStack {
             cameraLayer
@@ -22,6 +30,8 @@ struct DatasetCollectionView: View {
             VStack {
                 topBar
                 Spacer()
+                metricsProbe
+                consentNotice
                 statusLabel
                 shutterBar
             }
@@ -34,10 +44,32 @@ struct DatasetCollectionView: View {
         }
         .onDisappear { model.manager.stop() }
         .sheet(item: $model.pending) { sample in
-            DatasetLabelingView(sample: sample, model: model)
+            // 시트를 두 번 여닫지 않고 안쪽 내용만 바꾼다. 시트를 갈아 끼우면
+            // 닫힘 애니메이션 도중 다시 뜨면서 깜빡인다.
+            switch model.stage {
+            case .rank:
+                if let result = model.rankResult {
+                    RankResultView(
+                        sample: sample,
+                        result: result,
+                        onContinue: model.advanceToLabeling
+                    )
+                } else {
+                    DatasetLabelingView(sample: sample, model: model)
+                }
+            case .labeling:
+                DatasetLabelingView(sample: sample, model: model)
+            }
         }
         .sheet(isPresented: $isShowingLibrary) {
             DatasetLibraryView(model: model)
+        }
+        .sheet(isPresented: $model.isRequestingConsent) {
+            ConsentView(
+                subjectID: model.subjectID,
+                onAgree: model.grantConsent,
+                onDecline: model.declineConsent
+            )
         }
         .alert("오류", isPresented: .init(
             get: { model.errorMessage != nil },
@@ -97,6 +129,13 @@ struct DatasetCollectionView: View {
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
                 .frame(width: 80)
+                .focused($isEditingSubject)
+                // 이름을 다 적으면 그 사람의 동의부터 받는다. 글자가 바뀔 때마다가 아니라
+                // 편집이 끝날 때 한 번만 띄워야 한 글자 칠 때마다 시트가 뜨지 않는다.
+                // 리턴을 눌러도, 화면 아무 곳이나 눌러도 포커스가 빠지는 건 이 한 번이다.
+                .onChange(of: isEditingSubject) { _, isEditing in
+                    if !isEditing { model.requestConsentIfNeeded() }
+                }
 
             Button("다음 사람") { model.advanceSubject() }
                 .font(.caption.bold())
@@ -104,6 +143,157 @@ struct DatasetCollectionView: View {
         }
         .padding(10)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - 판정 지표 계측기
+
+    /// 신분 판정에 쓰는 네 지표를 실시간으로 보여 준다. (DEBUG 전용)
+    ///
+    /// `RankReader.Threshold`의 기준값을 실측으로 맞추기 위한 도구다. 촬영하지 않고
+    /// 카메라를 향하기만 해도 값이 보이므로 여러 사람을 빠르게 훑을 수 있다.
+    ///
+    /// 볼 것 두 가지 —
+    /// 1. **중앙값**: 기준값을 어디에 둬야 반씩 갈리는가
+    /// 2. **사람 간 차이**: 사람이 바뀌어도 값이 거의 안 변하면 그 지표는 못 쓴다
+    @ViewBuilder
+    private var metricsProbe: some View {
+#if DEBUG
+        if let result = model.liveResult {
+            VStack(spacing: 4) {
+                probeRow("IPD", result.metrics.ipdMM, spread?.ipd, "%.1f")
+                probeRow("너비", result.metrics.widthMM, spread?.width, "%.1f")
+
+                if let vision = model.landmarkMetrics {
+                    Divider().overlay(.white.opacity(0.25)).padding(.vertical, 2)
+
+                    probeRow("입", vision.mouthWidth, spread?.mouth, "%.3f")
+                    probeRow("코", vision.noseWidth, spread?.nose, "%.3f")
+                    probeRow("윤곽", vision.faceWidth, spread?.contour, "%.3f")
+                    probeRow("눈입", vision.eyeToMouth, spread?.eyeToMouth, "%.3f")
+                    probeRow("눈폭", vision.eyeWidth, spread?.eyeWidth, "%.3f")
+                }
+
+                HStack(spacing: 8) {
+                    Text(result.rank.title)
+                        .foregroundStyle(result.rank.tint)
+
+                    Text("\(model.collectedFrameCount)장")
+                        .foregroundStyle(.white.opacity(0.45))
+
+                    Button("기억 삭제", action: model.forgetRanks)
+                        .foregroundStyle(.orange.opacity(0.9))
+                }
+                .padding(.top, 2)
+            }
+            .font(.caption2.monospaced())
+            .foregroundStyle(.white.opacity(0.85))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
+            .padding(.bottom, 8)
+            .onChange(of: result.metrics, initial: true) { _, metrics in
+                spread = spread?.adding(metrics) ?? MetricSpread(metrics)
+            }
+            .onChange(of: model.landmarkMetrics) { _, vision in
+                if let vision { spread = spread?.adding(vision) }
+            }
+            // 얼굴이 화면을 벗어나면 범위를 버린다. 안 그러면 ±가 앱을 켠 이후 본 모든
+            // 얼굴의 누적 범위가 되어, 한 사람의 떨림을 재는 계측기 구실을 못 한다.
+            .onChange(of: model.collectedFrameCount) { _, count in
+                if count == 0 { spread = nil }
+            }
+        }
+#endif
+    }
+
+#if DEBUG
+    /// 같은 얼굴을 계속 보면서 값이 얼마나 떨리는지 모은다.
+    ///
+    /// 사람이 바뀔 때의 차이보다 이 떨림이 크면, 그 지표로는 사람을 가를 수 없다.
+    private struct MetricSpread {
+        var width: ClosedRange<Float>
+        var ipd: ClosedRange<Float>
+
+        // Vision 랜드마크 쪽. 얼굴이 잡히기 전에는 값이 없다.
+        var mouth: ClosedRange<Float>?
+        var nose: ClosedRange<Float>?
+        var contour: ClosedRange<Float>?
+        var eyeToMouth: ClosedRange<Float>?
+        var eyeWidth: ClosedRange<Float>?
+
+        init(_ metrics: FaceMetrics) {
+            width = metrics.widthMM...metrics.widthMM
+            ipd = metrics.ipdMM...metrics.ipdMM
+        }
+
+        func adding(_ metrics: FaceMetrics) -> MetricSpread {
+            var copy = self
+            copy.width = Self.extend(width, with: metrics.widthMM)
+            copy.ipd = Self.extend(ipd, with: metrics.ipdMM)
+            return copy
+        }
+
+        func adding(_ vision: FaceLandmarkMetrics) -> MetricSpread {
+            var copy = self
+            copy.mouth = Self.extend(mouth, with: vision.mouthWidth)
+            copy.nose = Self.extend(nose, with: vision.noseWidth)
+            copy.contour = Self.extend(contour, with: vision.faceWidth)
+            copy.eyeToMouth = Self.extend(eyeToMouth, with: vision.eyeToMouth)
+            copy.eyeWidth = Self.extend(eyeWidth, with: vision.eyeWidth)
+            return copy
+        }
+
+        private static func extend(_ range: ClosedRange<Float>?, with value: Float) -> ClosedRange<Float> {
+            guard let range else { return value...value }
+            return extend(range, with: value)
+        }
+
+        private static func extend(_ range: ClosedRange<Float>, with value: Float) -> ClosedRange<Float> {
+            min(range.lowerBound, value)...max(range.upperBound, value)
+        }
+    }
+
+    /// `현재값  (떨림폭)` 한 줄.
+    private func probeRow(
+        _ title: String,
+        _ value: Float,
+        _ range: ClosedRange<Float>?,
+        _ format: String
+    ) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .foregroundStyle(.white.opacity(0.55))
+                .frame(width: 34, alignment: .leading)
+
+            Text(String(format: format, value))
+
+            if let range {
+                Text(String(format: "±\(format)", (range.upperBound - range.lowerBound) / 2))
+                    .foregroundStyle(.orange.opacity(0.9))
+            }
+        }
+    }
+#endif
+
+    // MARK: - 동의 안내
+
+    /// 동의를 아직 못 받았다는 표시. 셔터가 왜 촬영 대신 시트를 여는지 알려 준다.
+    @ViewBuilder
+    private var consentNotice: some View {
+        if !model.hasConsent {
+            Label(
+                model.subjectID.isEmpty
+                    ? "피험자 구분자를 먼저 입력하세요"
+                    : "\(model.subjectID) 동의 필요 · 셔터를 누르면 동의 화면이 열립니다",
+                systemImage: "hand.raised.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.yellow)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.black.opacity(0.6), in: Capsule())
+            .padding(.bottom, 8)
+        }
     }
 
     // MARK: - 상태 표시
@@ -164,9 +354,17 @@ struct DatasetCollectionView: View {
                 Circle()
                     .fill(model.quality?.isGood == true ? .white : .white.opacity(0.5))
                     .frame(width: 62, height: 62)
+
+                if !model.hasConsent {
+                    Image(systemName: "lock.fill")
+                        .font(.title3)
+                        .foregroundStyle(.black.opacity(0.55))
+                }
             }
         }
-        .disabled(!model.manager.isFaceTracked || model.isProcessing)
+        // 동의 전에는 얼굴이 잡혔는지와 무관하게 누를 수 있어야 한다.
+        // 누르면 촬영이 아니라 동의 화면이 열린다. (`capture()`가 막는다)
+        .disabled(model.isProcessing || (model.hasConsent && !model.manager.isFaceTracked))
         .padding(.top, 16)
     }
 }
