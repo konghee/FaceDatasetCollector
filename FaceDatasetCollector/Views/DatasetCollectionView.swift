@@ -15,6 +15,9 @@ struct DatasetCollectionView: View {
     @State private var model = DatasetCollectionModel()
     @State private var isShowingLibrary = false
 
+    /// 피험자 이름을 적는 중인지. 편집이 끝나는 순간을 알아야 동의 시트를 띄울 수 있다.
+    @FocusState private var isEditingSubject: Bool
+
 #if DEBUG
     /// 판정 지표가 프레임마다 얼마나 흔들리는지 모은 범위. (계측용)
     @State private var spread: MetricSpread?
@@ -28,6 +31,7 @@ struct DatasetCollectionView: View {
                 topBar
                 Spacer()
                 metricsProbe
+                consentNotice
                 statusLabel
                 shutterBar
             }
@@ -59,6 +63,13 @@ struct DatasetCollectionView: View {
         }
         .sheet(isPresented: $isShowingLibrary) {
             DatasetLibraryView(model: model)
+        }
+        .sheet(isPresented: $model.isRequestingConsent) {
+            ConsentView(
+                subjectID: model.subjectID,
+                onAgree: model.grantConsent,
+                onDecline: model.declineConsent
+            )
         }
         .alert("오류", isPresented: .init(
             get: { model.errorMessage != nil },
@@ -118,6 +129,13 @@ struct DatasetCollectionView: View {
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
                 .frame(width: 80)
+                .focused($isEditingSubject)
+                // 이름을 다 적으면 그 사람의 동의부터 받는다. 글자가 바뀔 때마다가 아니라
+                // 편집이 끝날 때 한 번만 띄워야 한 글자 칠 때마다 시트가 뜨지 않는다.
+                // 리턴을 눌러도, 화면 아무 곳이나 눌러도 포커스가 빠지는 건 이 한 번이다.
+                .onChange(of: isEditingSubject) { _, isEditing in
+                    if !isEditing { model.requestConsentIfNeeded() }
+                }
 
             Button("다음 사람") { model.advanceSubject() }
                 .font(.caption.bold())
@@ -257,6 +275,27 @@ struct DatasetCollectionView: View {
     }
 #endif
 
+    // MARK: - 동의 안내
+
+    /// 동의를 아직 못 받았다는 표시. 셔터가 왜 촬영 대신 시트를 여는지 알려 준다.
+    @ViewBuilder
+    private var consentNotice: some View {
+        if !model.hasConsent {
+            Label(
+                model.subjectID.isEmpty
+                    ? "피험자 구분자를 먼저 입력하세요"
+                    : "\(model.subjectID) 동의 필요 · 셔터를 누르면 동의 화면이 열립니다",
+                systemImage: "hand.raised.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.yellow)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.black.opacity(0.6), in: Capsule())
+            .padding(.bottom, 8)
+        }
+    }
+
     // MARK: - 상태 표시
 
     @ViewBuilder
@@ -315,9 +354,17 @@ struct DatasetCollectionView: View {
                 Circle()
                     .fill(model.quality?.isGood == true ? .white : .white.opacity(0.5))
                     .frame(width: 62, height: 62)
+
+                if !model.hasConsent {
+                    Image(systemName: "lock.fill")
+                        .font(.title3)
+                        .foregroundStyle(.black.opacity(0.55))
+                }
             }
         }
-        .disabled(!model.manager.isFaceTracked || model.isProcessing)
+        // 동의 전에는 얼굴이 잡혔는지와 무관하게 누를 수 있어야 한다.
+        // 누르면 촬영이 아니라 동의 화면이 열린다. (`capture()`가 막는다)
+        .disabled(model.isProcessing || (model.hasConsent && !model.manager.isFaceTracked))
         .padding(.top, 16)
     }
 }

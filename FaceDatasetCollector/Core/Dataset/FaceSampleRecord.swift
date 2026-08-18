@@ -73,6 +73,13 @@ nonisolated struct FaceSampleRecord: Codable, Sendable, Identifiable {
     /// 나중에 사람 단위로 split 하려면 이 값이 반드시 필요하다.
     let subjectID: String
 
+    /// 이 사람에게 촬영 동의를 받은 시각.
+    ///
+    /// 옵셔널이 아닌 이유는, 동의 시각이 없는 표본은 애초에 저장되지 않기 때문이다.
+    /// 데이터셋을 나중에 넘겨받은 사람이 "이 사진들은 동의를 받고 찍은 것인가"를
+    /// 앱 밖에서, 파일만 보고 답할 수 있어야 한다.
+    let consentedAt: Date
+
     /// 눈은 좌·우를 따로 본다. 한쪽이 봉황눈이고 다른 쪽이 용눈일 수 있어
     /// 한 라벨로 묶으면 둘 중 하나는 틀린 정답이 된다.
     let leftEyeLabel: String
@@ -94,5 +101,7 @@ nonisolated struct FaceSampleRecord: Codable, Sendable, Identifiable {
 
     /// 2: `eyeLabel` 하나를 `leftEyeLabel`/`rightEyeLabel`로 나눴고,
     ///    roll을 카메라 축이 아닌 중력 기준으로 재기 시작했다.
-    static let currentSchemaVersion = 2
+    /// 3: 촬영 동의 시각(`consentedAt`)을 표본마다 남기기 시작했다.
+    ///    이 값이 없는 2 이하의 기록은 동의를 받기 전에 모은 것이다.
+    static let currentSchemaVersion = 3
 }
