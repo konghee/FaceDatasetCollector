@@ -12,7 +12,7 @@ import Foundation
 /// images/eye/<라벨>/<id>_L.jpg, <id>_R.jpg   ← Create ML 이미지 분류기에 그대로 투입
 /// images/faceShape/<라벨>/<id>.jpg           ← 〃
 /// raw/<id>.jpg                               ← 전체 프레임 (크롭 규칙 바꿀 때 재사용)
-/// meta/<id>.json                             ← 라벨 + 각도 + 블렌드셰이프
+/// meta/<id>.json                             ← 라벨 + 각도 + 블렌드셰이프 + 동의 시각
 /// geometry/<id>.bin                          ← 얼굴 메시 1220정점 (Float32 x,y,z)
 /// index.csv                                  ← 한 줄 = 한 표본
 /// ```
@@ -53,7 +53,8 @@ actor FaceDatasetStore {
         leftEye: EyeLabel,
         rightEye: EyeLabel,
         faceShape: FaceShapeLabel,
-        subjectID: String
+        subjectID: String,
+        consentedAt: Date
     ) throws -> FaceSampleRecord {
         let name = sample.id.uuidString
 
@@ -84,6 +85,7 @@ actor FaceDatasetStore {
             id: sample.id,
             capturedAt: sample.capturedAt,
             subjectID: subjectID,
+            consentedAt: consentedAt,
             leftEyeLabel: leftEye.folderName,
             rightEyeLabel: rightEye.folderName,
             faceShapeLabel: faceShape.folderName,
@@ -131,11 +133,13 @@ actor FaceDatasetStore {
     /// 사람 단위 split, 각도 분포 확인 같은 작업은 JSON 1000개를 여는 것보다
     /// CSV 한 장을 pandas로 읽는 편이 훨씬 빠르다.
     private func appendToIndex(_ record: FaceSampleRecord) throws {
-        let header = "id,capturedAt,subjectID,leftEyeLabel,rightEyeLabel,faceShapeLabel,yaw,pitch,roll,ipdMM,opennessL,opennessR,device\n"
+        let iso = ISO8601DateFormatter()
+        let header = "id,capturedAt,subjectID,consentedAt,leftEyeLabel,rightEyeLabel,faceShapeLabel,yaw,pitch,roll,ipdMM,opennessL,opennessR,device\n"
         let line = [
             record.id.uuidString,
-            ISO8601DateFormatter().string(from: record.capturedAt),
+            iso.string(from: record.capturedAt),
             record.subjectID,
+            iso.string(from: record.consentedAt),
             record.leftEyeLabel,
             record.rightEyeLabel,
             record.faceShapeLabel,

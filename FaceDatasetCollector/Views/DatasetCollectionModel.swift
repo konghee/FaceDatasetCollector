@@ -48,8 +48,20 @@ final class DatasetCollectionModel {
     /// 정확도가 실제보다 높게 나온다. 나중에 사람 단위로 나누려면 촬영 시점에
     /// 누구인지 남겨 두는 수밖에 없다.
     var subjectID: String {
-        didSet { UserDefaults.standard.set(subjectID, forKey: Keys.subjectID) }
+        didSet {
+            UserDefaults.standard.set(subjectID, forKey: Keys.subjectID)
+            hasConsent = ConsentLedger.hasConsented(subjectID)
+        }
     }
+
+    /// 지금 피험자에게 촬영 동의를 받았는지.
+    ///
+    /// `ConsentLedger`를 그때그때 읽지 않고 들고 있는 이유는, 동의를 받아도 `subjectID`는
+    /// 그대로라 화면이 다시 그려질 계기가 없기 때문이다.
+    private(set) var hasConsent: Bool
+
+    /// 동의 시트를 띄울지. 이름을 다 적은 직후와 다음 사람으로 넘어간 직후에 켜진다.
+    var isRequestingConsent = false
 
     /// 센서 원본(가로)을 세로로 세우는 방식.
     ///
@@ -66,7 +78,9 @@ final class DatasetCollectionModel {
     }
 
     init() {
-        subjectID = UserDefaults.standard.string(forKey: Keys.subjectID) ?? "S001"
+        let restoredSubjectID = UserDefaults.standard.string(forKey: Keys.subjectID) ?? "S001"
+        subjectID = restoredSubjectID
+        hasConsent = ConsentLedger.hasConsented(restoredSubjectID)
         captureOrientation = CaptureOrientation(
             storedValue: UserDefaults.standard.integer(forKey: Keys.orientation)
         )
@@ -189,6 +203,18 @@ final class DatasetCollectionModel {
     func capture() {
         guard !isProcessing, pending == nil else { return }
 
+        // 동의 없이 찍힌 사진이 데이터셋에 섞이면 나중에 골라낼 수가 없다.
+        // 셔터를 막는 대신 동의 화면을 열어 준다. 반응 없는 버튼만 남으면
+        // 무엇이 막고 있는지 알 수 없다.
+        guard hasConsent else {
+            if subjectID.isEmpty {
+                errorMessage = "피험자 구분자를 먼저 입력하세요."
+            } else {
+                isRequestingConsent = true
+            }
+            return
+        }
+
         guard let raw = DatasetCapture.grab(from: manager, orientation: captureOrientation) else {
             errorMessage = "얼굴을 찾지 못했습니다. 화면 안에 얼굴을 맞춰 주세요."
             return
@@ -210,6 +236,26 @@ final class DatasetCollectionModel {
         }
     }
 
+    // MARK: - 동의
+
+    /// 이름을 다 적었거나 다음 사람으로 넘어간 직후에 부른다.
+    /// 아직 동의를 받지 않은 사람이면 동의 시트를 띄운다.
+    func requestConsentIfNeeded() {
+        guard !hasConsent, !subjectID.isEmpty else { return }
+        isRequestingConsent = true
+    }
+
+    func grantConsent() {
+        ConsentLedger.record(subjectID)
+        hasConsent = true
+        isRequestingConsent = false
+    }
+
+    /// 동의하지 않았다. 시트만 닫고 동의는 남기지 않으므로 셔터는 계속 막혀 있다.
+    func declineConsent() {
+        isRequestingConsent = false
+    }
+
     /// 참여자가 결과를 다 봤다. 수집자의 라벨링 화면으로 넘긴다.
     func advanceToLabeling() {
         stage = .labeling
@@ -226,6 +272,14 @@ final class DatasetCollectionModel {
     func save(leftEye: EyeLabel, rightEye: EyeLabel, faceShape: FaceShapeLabel) {
         guard let sample = pending, !isSaving else { return }
 
+        // 동의 시각이 없으면 저장하지 않는다. 데이터셋에 들어간 사진은 모두
+        // 언제 받은 동의로 찍혔는지가 파일에 붙어 있어야 한다.
+        // (셔터에서 이미 막으므로 여기까지 오는 일은 없어야 한다)
+        guard let consentedAt = ConsentLedger.consentedAt(subjectID) else {
+            errorMessage = "\(subjectID)의 동의 기록이 없어 저장하지 않았습니다. 버리고 동의부터 받아 주세요."
+            return
+        }
+
         isSaving = true
         Task {
             do {
@@ -234,7 +288,8 @@ final class DatasetCollectionModel {
                     leftEye: leftEye,
                     rightEye: rightEye,
                     faceShape: faceShape,
-                    subjectID: subjectID
+                    subjectID: subjectID,
+                    consentedAt: consentedAt
                 )
                 lastSaved = "\(subjectID) · \(leftEye.folderName)/\(rightEye.folderName) · \(faceShape.folderName)"
                 pending = nil
@@ -253,15 +308,19 @@ final class DatasetCollectionModel {
     }
 
     /// 다음 사람으로 넘어간다. `S001` → `S002`처럼 숫자 부분만 올린다.
+    ///
+    /// 구분자가 바뀌면 카메라 앞에 선 사람도 바뀐 것이므로, 곧바로 그 사람의 동의를 받는다.
     func advanceSubject() {
         let digits = subjectID.suffix(while: \.isNumber)
         guard let number = Int(digits), !digits.isEmpty else {
             subjectID += "-2"
+            requestConsentIfNeeded()
             return
         }
 
         let prefix = subjectID.dropLast(digits.count)
         subjectID = prefix + String(format: "%0\(digits.count)d", number + 1)
+        requestConsentIfNeeded()
     }
 }
 
