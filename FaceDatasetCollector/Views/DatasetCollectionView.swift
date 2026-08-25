@@ -4,8 +4,10 @@
 //
 
 // 관상 모델 학습용 얼굴 데이터를 현장에서 모으는 화면.
-// 전면 카메라로 얼굴을 잡고 → 셔터 → 눈/얼굴형을 손으로 라벨링 → 라벨별 폴더로 저장.
-// 제품 플로우와는 분리된 수집 전용 도구다.
+// 전면 카메라로 얼굴을 잡고 → 동의 → 셔터 → 라벨 없이 저장 → 참여자에게 신분 결과.
+//
+// 눈/얼굴형 라벨은 여기서 붙이지 않는다. 데이터셋 화면의 `라벨링 대기`에서
+// 나중에 사람 단위로 몰아서 붙인다. 제품 플로우와는 분리된 수집 전용 도구다.
 
 import ARKit
 import SceneKit
@@ -43,22 +45,13 @@ struct DatasetCollectionView: View {
             Task { await model.refreshStats() }
         }
         .onDisappear { model.manager.stop() }
-        .sheet(item: $model.pending) { sample in
-            // 시트를 두 번 여닫지 않고 안쪽 내용만 바꾼다. 시트를 갈아 끼우면
-            // 닫힘 애니메이션 도중 다시 뜨면서 깜빡인다.
-            switch model.stage {
-            case .rank:
-                if let result = model.rankResult {
-                    RankResultView(
-                        sample: sample,
-                        result: result,
-                        onContinue: model.advanceToLabeling
-                    )
-                } else {
-                    DatasetLabelingView(sample: sample, model: model)
-                }
-            case .labeling:
-                DatasetLabelingView(sample: sample, model: model)
+        .sheet(item: $model.shown) { sample in
+            if let result = model.rankResult {
+                RankResultView(
+                    sample: sample,
+                    result: result,
+                    onContinue: model.dismissResult
+                )
             }
         }
         .sheet(isPresented: $isShowingLibrary) {
@@ -112,6 +105,14 @@ struct DatasetCollectionView: View {
                     Image(systemName: "folder")
                     Text("\(model.stats.totalSamples)장")
                         .font(.caption2.monospacedDigit())
+
+                    // 라벨링이 밀린 정도를 수집 중에도 보이게 둔다. 부스가 끝나고
+                    // 열어 보기 전까지 모르면 몇 백 장이 한꺼번에 쌓인다.
+                    if model.stats.unlabeledSamples > 0 {
+                        Text("미분류 \(model.stats.unlabeledSamples)")
+                            .font(.system(size: 9).monospacedDigit())
+                            .foregroundStyle(.orange)
+                    }
                 }
                 .padding(10)
                 .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
@@ -324,6 +325,15 @@ struct DatasetCollectionView: View {
                     Text("저장됨 · \(lastSaved)")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.6))
+                }
+
+                // 크롭이 빈 표본은 나중에 라벨을 붙일 그림이 없다.
+                // 그 사람이 아직 앞에 있을 때 알려 줘야 다시 찍을 수 있다.
+                if let captureWarning = model.captureWarning {
+                    Text(captureWarning)
+                        .font(.caption2)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.orange)
                 }
             }
             .padding(.horizontal, 14)

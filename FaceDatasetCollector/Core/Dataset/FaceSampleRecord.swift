@@ -82,26 +82,39 @@ nonisolated struct FaceSampleRecord: Codable, Sendable, Identifiable {
 
     /// 눈은 좌·우를 따로 본다. 한쪽이 봉황눈이고 다른 쪽이 용눈일 수 있어
     /// 한 라벨로 묶으면 둘 중 하나는 틀린 정답이 된다.
-    let leftEyeLabel: String
-    let rightEyeLabel: String
-
-    let faceShapeLabel: String
+    ///
+    /// 촬영 시점에는 셋 다 `nil`이다. 부스에서는 참여자를 세워 둔 채 눈 9종·얼굴형 5종을
+    /// 고를 시간이 없어, 사진만 먼저 모으고 나중에 사람 단위로 몰아서 붙인다.
+    /// (`FaceDatasetStore.applyLabels(to:...)`)
+    var leftEyeLabel: String?
+    var rightEyeLabel: String?
+    var faceShapeLabel: String?
 
     let geometry: SampleGeometry
 
     /// 데이터셋 루트 기준 상대 경로.
+    ///
+    /// 크롭 셋은 라벨이 붙는 순간 `pending/`에서 `images/<축>/<라벨>/`로 **옮겨진다.**
+    /// 경로가 `let`이 아닌 건 그래서다.
     let fullFramePath: String
-    let faceCropPath: String?
-    let leftEyeCropPath: String?
-    let rightEyeCropPath: String?
+    var faceCropPath: String?
+    var leftEyeCropPath: String?
+    var rightEyeCropPath: String?
     let verticesPath: String
 
     let deviceModel: String
     let schemaVersion: Int
 
+    /// 세 축이 모두 정해졌는지. 하나라도 비면 라벨링 대기 목록에 남는다.
+    var isLabeled: Bool {
+        leftEyeLabel != nil && rightEyeLabel != nil && faceShapeLabel != nil
+    }
+
     /// 2: `eyeLabel` 하나를 `leftEyeLabel`/`rightEyeLabel`로 나눴고,
     ///    roll을 카메라 축이 아닌 중력 기준으로 재기 시작했다.
     /// 3: 촬영 동의 시각(`consentedAt`)을 표본마다 남기기 시작했다.
     ///    이 값이 없는 2 이하의 기록은 동의를 받기 전에 모은 것이다.
-    static let currentSchemaVersion = 3
+    /// 4: 라벨을 촬영과 분리했다. 라벨 셋이 옵셔널이 되고, 붙기 전의 크롭은
+    ///    `images/`가 아니라 `pending/`에 있다.
+    static let currentSchemaVersion = 4
 }

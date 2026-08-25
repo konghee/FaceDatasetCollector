@@ -11,10 +11,16 @@ FaceDatasetCollectorApp     진입점. DatasetCollectionView 하나만 띄운다
 
 Views/
   DatasetCollectionView     카메라 화면 + 셔터 (보이는 것)
-  DatasetCollectionModel    촬영→라벨링→저장 한 사이클의 상태 (판단하는 것)
+  DatasetCollectionModel    구분자→동의→촬영→저장 한 사이클의 상태 (판단하는 것)
   FaceMeshCoordinator       얼굴 위에 와이어프레임 메시를 그리는 델리게이트
-  DatasetLabelingView       라벨 붙이는 시트
-  DatasetLibraryView        통계 / zip 내보내기 / 방향 설정
+  ConsentView               촬영 전 참여자에게 보여 주는 동의 화면
+  RankResultView            촬영 직후 참여자에게 보여 주는 신분 결과
+
+  LabelingQueueModel        라벨링 대기 목록의 상태 (나중에 하는 일)
+  DatasetLabelingQueueView  라벨링을 기다리는 사람들의 목록
+  DatasetLabelingView       한 사람의 사진 전부에 라벨을 붙이는 화면
+  DatasetCropView           디스크의 크롭 한 장을 읽어 그리는 작은 뷰
+  DatasetLibraryView        통계 / 라벨링 입구 / zip 내보내기 / 방향 설정
 
 Core/FaceGeometry/          ARKit에서 값을 꺼내는 층
   ARFaceCaptureManager      세션 관리, 매 프레임 스냅샷 발행
@@ -117,19 +123,23 @@ makeSample()  백그라운드, async, 무겁게      Vision 검출 + 크롭 + JP
 - **눈 2배** ([`:37`](../FaceDatasetCollector/Core/Dataset/EyeCropper.swift#L37)) — 눈꼬리·쌍꺼풀 주변 맥락이 있어야 모양을 구분합니다
 - **얼굴 1.5배** ([`:52`](../FaceDatasetCollector/Core/Dataset/EyeCropper.swift#L52)) — Vision의 `boundingBox`는 턱과 이마를 바싹 자르는데, 얼굴형 판정에 필요한 정보가 바로 그 턱선과 이마 폭입니다
 
-Vision이 얼굴을 못 찾아도 표본은 만듭니다. 전체 프레임과 기하값은 이미 유효하고, 크롭은 나중에 `raw/`에서 다시 뜰 수 있으니까요. 대신 `hasAllCrops`가 false가 되어 라벨링 화면에 경고가 뜹니다.
+Vision이 얼굴을 못 찾아도 표본은 만듭니다. 전체 프레임과 기하값은 이미 유효하고, 크롭은 나중에 `raw/`에서 다시 뜰 수 있으니까요. 대신 `hasAllCrops`가 false가 되어 카메라 화면에 경고가 뜹니다 — **그 사람이 아직 앞에 있을 때** 다시 찍어야 하기 때문입니다.
 
-### ③ 라벨링 시트
+### ③ 저장, 그리고 참여자에게 보여 주기
 
-시트를 여닫는 방식이 조금 특이합니다.
+셔터를 누르면 **라벨 없이 곧바로 저장**하고, 참여자에게 신분 결과를 띄웁니다.
 
-```swift
-.sheet(item: $model.pending) { sample in ... }
+```
+capture() ──→ makeSample() ──→ store()  라벨 없이 디스크로
+                  │
+                  └──────────→ shown = sample  결과 시트가 뜬다
 ```
 
-`pending`에 값이 생기면 시트가 뜨고, **`nil`이 되면 저절로 닫힙니다.** 그래서 저장 버튼도 `버리기` 버튼도 `dismiss()`를 부르지 않고 `pending`만 건드립니다. `dismiss()`를 직접 부르면 아직 `pending`이 남아 있는 찰나에 시트가 다시 떠오르는 버그가 납니다.
+라벨링이 이 경로에 없는 것이 핵심입니다. 부스에서는 참여자가 눈앞에 서 있는데, 거기서 눈 9종·얼굴형 5종을 고르면 한 사람당 수십 초가 더 걸립니다. 급하게 고른 라벨은 어차피 나중에 다시 봐야 하고요. 그래서 **현장은 사진만 모으고, 라벨은 나중에 사람 단위로** 붙입니다. (7절)
 
-[`DatasetLabelingView`](../FaceDatasetCollector/Views/DatasetLabelingView.swift)의 [`labelSection`](../FaceDatasetCollector/Views/DatasetLabelingView.swift#L130)은 제네릭 함수라, 같은 함수를 눈 두 번 + 얼굴형 한 번 호출하면 끝입니다. 각 섹션 옆에 그 크롭을 붙여 어느 쪽을 고르는 중인지 보이게 했습니다.
+저장이 시트보다 **먼저**인 것도 의도한 순서입니다. 결과를 보여 주는 도중에 수집자가 실수로 시트를 닫아도 사진은 이미 디스크에 있습니다.
+
+`shown`에 값이 생기면 시트가 뜨고 **`nil`이 되면 저절로 닫힙니다.** 그래서 `다 봤어요` 버튼도 `dismiss()`를 부르지 않고 `shown`만 건드립니다. `dismiss()`를 직접 부르면 아직 값이 남아 있는 찰나에 시트가 다시 떠오르는 버그가 납니다.
 
 ### ④ 저장
 
@@ -137,8 +147,10 @@ Vision이 얼굴을 못 찾아도 표본은 만듭니다. 전체 프레임과 �
 
 두 가지만 코드 관점에서 덧붙이면:
 
-- [`appendToIndex`](../FaceDatasetCollector/Core/Dataset/FaceDatasetStore.swift#L133)가 `index.csv`의 **헤더 첫 줄을 읽어 현재 13열 구성과 비교**하고, 다르면 옛 파일을 `index-legacy-<시각>.csv`로 밀어 둡니다. 열 수가 다른 줄이 섞이면 CSV 전체를 못 읽게 되기 때문입니다
-- [`exportArchive()`](../FaceDatasetCollector/Core/Dataset/FaceDatasetStore.swift#L204)는 zip 라이브러리 없이 `NSFileCoordinator`의 `.forUploading` 옵션만으로 압축합니다
+- 미분류 크롭은 `images/` **바깥**의 `pending/`에 씁니다. Create ML은 "폴더명 = 클래스명"이라, `images/eye/_unlabeled/` 같은 폴더를 두면 그걸 10번째 눈 클래스로 학습해 버립니다
+- `appendToIndex`가 `index.csv`의 **헤더 첫 줄을 읽어 현재 14열 구성과 비교**하고, 다르면 옛 파일을 `index-legacy-<시각>.csv`로 밀어 둡니다. 열 수가 다른 줄이 섞이면 CSV 전체를 못 읽게 되기 때문입니다
+- 촬영 때는 줄 하나만 덧붙이고, **라벨이 바뀔 때만 `rebuildIndex()`가 통째로 다시 씁니다.** 라벨은 나중에 채워지므로 이미 써 둔 줄의 내용이 틀려지는데, 덧붙이기로는 고칠 수 없습니다. `meta/`가 진실의 원본이고 `index.csv`는 거기서 파생된 사본입니다
+- `exportArchive()`는 zip 라이브러리 없이 `NSFileCoordinator`의 `.forUploading` 옵션만으로 압축합니다
 
 ## 5. 방향은 어떻게 정해지나
 
@@ -217,7 +229,35 @@ let up = camera.transform.inverse * SIMD4(0, 1, 0, 0)   // 월드 +Y를 카메�
 
 얼굴 추적 세션은 중력 정렬이라 월드 +Y가 곧 실제 "위"입니다. 이걸 카메라 좌표로 옮겨 두면, **폰을 어떻게 들었든 "저장된 사진에서 고개가 얼마나 기울었나"와 같은 값**이 됩니다. 폰을 완전히 눕히면 중력의 투영이 0에 가까워져 각이 무의미해지므로, 그때는 카메라 축으로 돌아가는 예외를 뒀습니다.
 
-## 7. 프로젝트 전체에 걸린 관례 두 가지
+## 7. 라벨은 나중에, 사람 단위로 붙는다
+
+촬영과 라벨링이 **다른 시각에, 다른 사람 앞에서** 일어납니다. 촬영은 부스에서 참여자를 앞에 두고, 라벨링은 부스가 끝난 뒤 혼자 합니다. 그래서 상태도 둘로 나눠 뒀습니다 — [`DatasetCollectionModel`](../FaceDatasetCollector/Views/DatasetCollectionModel.swift)과 [`LabelingQueueModel`](../FaceDatasetCollector/Views/LabelingQueueModel.swift). 한 모델에 섞으면 촬영 중에는 쓰지도 않는 상태가 계속 딸려 다닙니다.
+
+### 파일이 움직인다
+
+라벨이 붙는 순간 **크롭 파일이 옮겨집니다.**
+
+```
+촬영 직후          pending/<id>_L.jpg
+                        ↓  applyLabels(to:leftEye:rightEye:faceShape:)
+라벨을 붙인 뒤     images/eye/phoenix/<id>_L.jpg
+```
+
+경로가 라벨로 정해지기 때문입니다(`images/eye/<라벨>/`). 그래서 `FaceSampleRecord`의 라벨 셋과 크롭 경로 셋이 `let`이 아니라 `var`입니다.
+
+[`move(_:to:)`](../FaceDatasetCollector/Core/Dataset/FaceDatasetStore.swift)는 네 경우를 다 받습니다 — 원본이 없을 때(Vision 실패), 이미 옮겨졌을 때(같은 라벨 재적용), 다른 라벨 폴더에 있을 때(라벨 수정), 목적지에 파일이 있을 때. 덕분에 **잘못 붙인 라벨을 다시 붙여 고칠 수 있습니다.**
+
+### 왜 사람 단위인가
+
+라벨은 사진이 아니라 **사람의 속성**입니다. 같은 사람을 다섯 장 찍었으면 눈 모양도 얼굴형도 다섯 장 모두 같습니다. 장당 고르게 하면 같은 답을 다섯 번 고르게 되고, 반복 중에 손이 미끄러지면 같은 얼굴에 다른 라벨이 붙어 **그 클래스는 학습이 안 됩니다.**
+
+그래도 [`DatasetLabelingView`](../FaceDatasetCollector/Views/DatasetLabelingView.swift)에서 사진을 골라 뺄 수 있게 둔 건, 눈을 감았거나 고개가 돌아간 한 장만 따로 처리해야 할 때가 있기 때문입니다.
+
+### 통계가 두 종류인 이유
+
+`DatasetStats`에 `unlabeledSamples`가 따로 있습니다. 클래스별 막대는 **라벨이 붙은 사진만** 셉니다 — 미분류는 아직 어느 폴더에도 없으니까요. 이걸 모르고 보면 부스가 끝난 직후 "아무것도 안 모였다"고 오해합니다. 그래서 데이터셋 화면이 두 숫자를 같이 보여 줍니다.
+
+## 8. 프로젝트 전체에 걸린 관례 두 가지
 
 ### 폴더명 = 클래스명
 
@@ -234,7 +274,7 @@ let up = camera.transform.inverse * SIMD4(0, 1, 0, 0)   // 월드 +Y를 카메�
 - 타입 통째로: `PendingSample`([`:15`](../FaceDatasetCollector/Core/Dataset/FaceSampleRecord.swift#L15)), `SampleGeometry`([`:39`](../FaceDatasetCollector/Core/Dataset/FaceSampleRecord.swift#L39)), `FaceSampleRecord`([`:68`](../FaceDatasetCollector/Core/Dataset/FaceSampleRecord.swift#L68))
 - 멤버 단위: `DatasetLabel`의 `folderName` / `id` / `axisName` / `axisTitle` / `pickerTitle`
 
-`FaceSampleRecord`의 `schemaVersion`은 현재 **2**입니다([`:97`](../FaceDatasetCollector/Core/Dataset/FaceSampleRecord.swift#L97)). 버전 2에서 단일 `eyeLabel`이 좌/우로 갈라졌고, roll이 중력 기준으로 바뀌었습니다.
+`FaceSampleRecord`의 `schemaVersion`은 현재 **4**입니다. 2에서 단일 `eyeLabel`이 좌/우로 갈라지고 roll이 중력 기준이 됐으며, 3에서 동의 시각이 붙었고, 4에서 **라벨이 촬영과 분리되어 옵셔널이 됐습니다.**
 
 ---
 

@@ -9,27 +9,20 @@ import Observation
 
 /// 데이터 수집 화면의 상태.
 ///
-/// 촬영 → 라벨링 → 저장의 한 사이클을 들고 있으며, 저장이 끝나면 곧바로
-/// 다음 촬영을 받을 수 있게 스스로를 비운다.
+/// 현장에서 하는 일만 들고 있다 — **구분자 정하기 → 동의 받기 → 촬영 → 저장.**
+/// 눈·얼굴형 라벨은 여기서 붙이지 않는다. 참여자를 세워 둔 채 14종을 고를 시간이 없어서,
+/// 사진만 먼저 모으고 나중에 사람 단위로 몰아서 붙인다. (`LabelingQueueModel`)
 @MainActor
 @Observable
 final class DatasetCollectionModel {
 
     let manager = ARFaceCaptureManager()
 
-    /// 라벨링을 기다리는 표본. 값이 있으면 시트가 뜬다.
-    var pending: PendingSample?
-
-    /// 시트가 지금 무엇을 보여 줄지.
+    /// 방금 찍어 **이미 저장된** 표본. 값이 있으면 신분 결과 시트가 뜬다.
     ///
-    /// 부스에서는 참여자가 앞에 서 있다. 라벨링(수집자 몫)을 먼저 하면 참여자를
-    /// 세워 둔 채 기다리게 하므로, 재미 요소인 신분 결과를 먼저 보여 준다.
-    enum PendingStage: Sendable {
-        case rank
-        case labeling
-    }
-
-    var stage: PendingStage = .rank
+    /// 시트가 뜨기 전에 저장이 끝나 있는 건 의도한 것이다. 결과를 보여 주는 도중에
+    /// 수집자가 실수로 시트를 닫아도 사진은 이미 디스크에 있다.
+    var shown: PendingSample?
 
     /// 이번 표본의 신분 판정 결과. 얼굴 비율을 못 재면 `nil`이고, 그때는 결과 화면을 건너뛴다.
     var rankResult: RankResult?
@@ -41,6 +34,12 @@ final class DatasetCollectionModel {
 
     /// 방금 저장한 표본 요약. 화면 위에 잠깐 띄운다.
     var lastSaved: String?
+
+    /// 방금 찍은 사진에서 Vision이 얼굴을 못 찾았다는 표시.
+    ///
+    /// 크롭이 비면 나중에 라벨을 붙일 그림이 없다. 원본은 남으니 저장은 하되,
+    /// **그 사람이 아직 앞에 있을 때** 다시 찍으라고 알려 줘야 한다.
+    var captureWarning: String?
 
     /// 피험자 구분자.
     ///
@@ -200,8 +199,12 @@ final class DatasetCollectionModel {
     var collectedFrameCount: Int { recentMetrics.count }
 #endif
 
+    /// 찍어서 바로 저장하고, 참여자에게 신분 결과를 보여 준다.
+    ///
+    /// 라벨링 단계가 없어 셔터 한 번으로 한 장이 끝난다. 같은 사람을 여러 장 찍을 때
+    /// 구분자를 다시 만질 필요도 없다.
     func capture() {
-        guard !isProcessing, pending == nil else { return }
+        guard !isProcessing, !isSaving, shown == nil else { return }
 
         // 동의 없이 찍힌 사진이 데이터셋에 섞이면 나중에 골라낼 수가 없다.
         // 셔터를 막는 대신 동의 화면을 열어 준다. 반응 없는 버튼만 남으면
@@ -215,12 +218,22 @@ final class DatasetCollectionModel {
             return
         }
 
+        // 동의 시각이 없으면 저장하지 않는다. 데이터셋에 들어간 사진은 모두
+        // 언제 받은 동의로 찍혔는지가 파일에 붙어 있어야 한다.
+        // (바로 위에서 이미 막으므로 여기까지 오는 일은 없어야 한다)
+        guard let consentedAt = ConsentLedger.consentedAt(subjectID) else {
+            errorMessage = "\(subjectID)의 동의 기록이 없어 촬영하지 않았습니다. 동의부터 받아 주세요."
+            return
+        }
+
         guard let raw = DatasetCapture.grab(from: manager, orientation: captureOrientation) else {
             errorMessage = "얼굴을 찾지 못했습니다. 화면 안에 얼굴을 맞춰 주세요."
             return
         }
 
         isProcessing = true
+        captureWarning = nil
+
         Task {
             // Vision 검출과 JPEG 인코딩은 무거워서 백그라운드로 넘긴다.
             let sample = await DatasetCapture.makeSample(from: raw)
@@ -229,11 +242,37 @@ final class DatasetCollectionModel {
             let result = representativeMetrics.map { RankReader.decide($0, subjectID: subjectID) }
                 ?? RankReader.decide(sample, subjectID: subjectID)
 
-            rankResult = result
-            stage = result == nil ? .labeling : .rank
-            pending = sample
+            await store(sample, consentedAt: consentedAt)
+
+            // 판정을 못 하면 보여 줄 것이 없다. 시트를 띄우지 않고 다음 촬영을 받는다.
+            if result != nil {
+                rankResult = result
+                shown = sample
+            }
             isProcessing = false
         }
+    }
+
+    /// 라벨 없이 디스크에 쓴다. 눈·얼굴형은 나중에 라벨링 화면이 붙인다.
+    private func store(_ sample: PendingSample, consentedAt: Date) async {
+        isSaving = true
+        do {
+            try await FaceDatasetStore.shared.save(
+                sample,
+                subjectID: subjectID,
+                consentedAt: consentedAt
+            )
+            lastSaved = "\(subjectID) · 라벨링 대기로 저장"
+
+            if !sample.hasAllCrops {
+                captureWarning = "얼굴 검출 실패 — 크롭이 비어 나중에 라벨을 못 붙입니다. 다시 찍으세요."
+            }
+
+            await refreshStats()
+        } catch {
+            errorMessage = "저장 실패: \(error.localizedDescription)"
+        }
+        isSaving = false
     }
 
     // MARK: - 동의
@@ -256,51 +295,12 @@ final class DatasetCollectionModel {
         isRequestingConsent = false
     }
 
-    /// 참여자가 결과를 다 봤다. 수집자의 라벨링 화면으로 넘긴다.
-    func advanceToLabeling() {
-        stage = .labeling
-    }
-
-    func discardPending() {
-        pending = nil
+    /// 참여자가 결과를 다 봤다. 시트를 닫고 다음 촬영을 받는다.
+    ///
+    /// 사진은 셔터를 누른 시점에 이미 저장돼 있으므로 여기서 할 일은 화면을 비우는 것뿐이다.
+    func dismissResult() {
+        shown = nil
         rankResult = nil
-        stage = .rank
-    }
-
-    // MARK: - 저장
-
-    func save(leftEye: EyeLabel, rightEye: EyeLabel, faceShape: FaceShapeLabel) {
-        guard let sample = pending, !isSaving else { return }
-
-        // 동의 시각이 없으면 저장하지 않는다. 데이터셋에 들어간 사진은 모두
-        // 언제 받은 동의로 찍혔는지가 파일에 붙어 있어야 한다.
-        // (셔터에서 이미 막으므로 여기까지 오는 일은 없어야 한다)
-        guard let consentedAt = ConsentLedger.consentedAt(subjectID) else {
-            errorMessage = "\(subjectID)의 동의 기록이 없어 저장하지 않았습니다. 버리고 동의부터 받아 주세요."
-            return
-        }
-
-        isSaving = true
-        Task {
-            do {
-                try await FaceDatasetStore.shared.save(
-                    sample,
-                    leftEye: leftEye,
-                    rightEye: rightEye,
-                    faceShape: faceShape,
-                    subjectID: subjectID,
-                    consentedAt: consentedAt
-                )
-                lastSaved = "\(subjectID) · \(leftEye.folderName)/\(rightEye.folderName) · \(faceShape.folderName)"
-                pending = nil
-                rankResult = nil
-                stage = .rank
-                await refreshStats()
-            } catch {
-                errorMessage = "저장 실패: \(error.localizedDescription)"
-            }
-            isSaving = false
-        }
     }
 
     func refreshStats() async {
