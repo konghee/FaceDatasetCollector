@@ -14,7 +14,10 @@ struct RankResultView: View {
     let sample: PendingSample
     let result: RankResult
 
-    /// 라벨링으로 넘어간다. 참여자가 결과를 다 본 뒤 수집자가 누른다.
+    /// 카메라로 돌아간다. 참여자가 결과를 다 본 뒤 수집자가 누른다.
+    ///
+    /// 사진은 셔터를 누른 시점에 이미 저장돼 있다. 이 버튼은 저장 버튼이 아니라
+    /// "다 봤다"는 신호이므로, 참여자가 눌러도 데이터가 상하지 않는다.
     let onContinue: () -> Void
 
     @State private var hasAppeared = false
@@ -190,7 +193,7 @@ struct RankResultView: View {
                 .foregroundStyle(.white.opacity(0.45))
 
             Button(action: onContinue) {
-                Text("라벨링하러 가기")
+                Text("다 봤어요")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 15)

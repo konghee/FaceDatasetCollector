@@ -28,6 +28,8 @@ struct DatasetLibraryView: View {
                     LabeledContent("저장 위치", value: "Documents/FaceDataset")
                 }
 
+                labelingSection
+
                 countSection(
                     title: EyeLabel.axisTitle,
                     labels: EyeLabel.allCases.map { ($0.pickerTitle, $0.folderName) },
@@ -91,6 +93,38 @@ struct DatasetLibraryView: View {
         }
     }
 
+    // MARK: - 라벨링 대기
+
+    /// 아직 라벨이 안 붙은 표본으로 들어가는 입구.
+    ///
+    /// 부스에서는 사진만 모으므로, 촬영이 끝나면 여기에 전부 쌓여 있다.
+    /// 내보내기 바로 위에 둔 건 순서가 그렇기 때문이다 — 라벨을 붙여야 내보낼 값이 된다.
+    private var labelingSection: some View {
+        Section {
+            NavigationLink {
+                DatasetLabelingQueueView(collection: model)
+            } label: {
+                HStack {
+                    Label("라벨링 대기", systemImage: "tag")
+
+                    Spacer()
+
+                    if model.stats.unlabeledSamples == 0 {
+                        Text("없음").foregroundStyle(.secondary)
+                    } else {
+                        Text("\(model.stats.unlabeledSubjects)명 · \(model.stats.unlabeledSamples)장")
+                            .font(.callout.monospacedDigit())
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+        } header: {
+            Text("라벨링")
+        } footer: {
+            Text("촬영은 라벨 없이 저장합니다. 눈·얼굴형은 여기서 사람 단위로 몰아서 붙이세요. 라벨이 붙어야 사진이 `images/` 아래 클래스 폴더로 옮겨져 Create ML에 들어갑니다.")
+        }
+    }
+
     // MARK: - 라벨별 장수
 
     private func countSection(
@@ -100,7 +134,7 @@ struct DatasetLibraryView: View {
     ) -> some View {
         let maximum = max(counts.values.max() ?? 0, 1)
 
-        return Section(title) {
+        return Section {
             ForEach(labels, id: \.1) { name, folder in
                 let count = counts[folder] ?? 0
 
@@ -118,6 +152,14 @@ struct DatasetLibraryView: View {
                         .frame(width: 36, alignment: .trailing)
                         .foregroundStyle(count == 0 ? .secondary : .primary)
                 }
+            }
+        } header: {
+            Text(title)
+        } footer: {
+            // 미분류가 쌓여 있는 동안 막대는 전체 분포가 아니다. 그걸 모르고 보면
+            // "아직 아무것도 안 모였다"고 오해한다.
+            if model.stats.unlabeledSamples > 0 {
+                Text("라벨이 붙은 \(model.stats.totalSamples - model.stats.unlabeledSamples)장만 셉니다. 미분류 \(model.stats.unlabeledSamples)장은 아직 어느 칸에도 들어 있지 않습니다.")
             }
         }
     }
